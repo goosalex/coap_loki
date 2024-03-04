@@ -15,3 +15,18 @@ source "${ZEPHYR_BASE}/subsys/logging/Kconfig.template.log_config"
 module = OT_COAP_UTILS
 module-str = OpenThread CoAP utils
 source "${ZEPHYR_BASE}/subsys/logging/Kconfig.template.log_config"
+
+config LOKI_MOTOR1PIN
+	int "Pin for Motor controller IN1."
+	default 13
+	range 0 31
+
+config LOKI_MOTOR2PIN
+	int "Pin for Motor controller IN2."
+	default 15
+	range 0 31
+
+config LOKI_MOTOR2PIN
+	int "Spare pin for Motor controller."
+	default 14
+	range 0 31
