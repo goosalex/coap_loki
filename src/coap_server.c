@@ -11,6 +11,7 @@
 #include <openthread/thread.h>
 
 #include "ot_coap_utils.h"
+#include "loki_coap_utils.h"
 
 LOG_MODULE_REGISTER(coap_server, CONFIG_COAP_SERVER_LOG_LEVEL);
 
@@ -126,6 +127,8 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 }
 static struct openthread_state_changed_cb ot_state_chaged_cb = { .state_changed_cb =
 									 on_thread_state_changed };
+
+
 
 int main2(void)
 {

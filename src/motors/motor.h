@@ -9,11 +9,11 @@
 extern struct device *motor_gpio_dev;
 
 
-extern void motor_init();
+extern int motor_init();
 
 
 // Function to set speed directly
-extern void motor_speed_change_pwm(uint32_t pwm_period, uint32_t pwm_pulse);
+extern int motor_speed_change_pwm(uint32_t pwm_period, uint32_t pwm_pulse);
 
 // set direction GPIO pins
 extern void motor_change_direction(uint8_t new_pattern);

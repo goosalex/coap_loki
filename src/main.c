@@ -25,11 +25,14 @@
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/services/bas.h>
+#include <zephyr/settings/settings.h>
 
 #include <zephyr/drivers/pwm.h>
 #include <stdio.h>
 
 #include "main_ble_utils.h"
+#include "loki_coap_utils.h"
+#include "main_loki.h"
 
 #if MOTOR_DRV8871
 #include "motors/motorDRV8871.h"
@@ -70,9 +73,7 @@
 
 #endif
 */
-static struct gpio_dt_spec led1_switch = {
-	GPIO_DT_SPEC_GET_OR(DT_ALIAS(led1_alias), gpios, {0})
-};
+
 /* First Demo uses all other 3 LEDs
 static const struct gpio_dt_spec led2_switch =
 	GPIO_DT_SPEC_GET_OR(DT_NODELABEL(led1_switch), gpios, {0});
@@ -126,32 +127,46 @@ void notify_speed_change()
 
 
 
+void stop_motor()
+{
+	change_speed_directly(0);
+}
 
-
-void main(void)
+int main(void)
 {
 	int err;
 
-	motor_init();
-	// Configure LED 1 and Button 1
-	// configure_led_buttons();
+	if (motor_init() != 0 ) {
+		printk("Motor init failed\n");
+		return -1;
+	}
+
+	if (loki_coap_init(
+		change_speed_directly,
+		speed_set_acceleration,
+		change_direction,
+		stop_motor) != 0) {
+			printk("CoAP init failed\n");			
+		}
+
 
 	err = bt_enable(NULL);
 	if (err) {
 		printk("Bluetooth init failed (err %d)\n", err);
-		return;
+		return -2;
 	}
-	err = settings_load();
-		if (err) {
-		printk("Bluetooth settings load failed (err %d)\n", err);
-		return;
+	if (IS_ENABLED(CONFIG_SETTINGS)) {
+		err = settings_load();
+			if (err) {
+			printk("Bluetooth settings load failed (err %d)\n", err);
+			return -3;
+		}
 	}
 	if (bt_ready() != 0) {
 		printk("Bluetooth setup failed\n");
-		return;
+		return -4;
 	}
-	bt_register();
-	
-	
+	bt_register();	
+	return 0;
 
 }

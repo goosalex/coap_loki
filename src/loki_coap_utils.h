@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
 
-#ifndef __OT_COAP_UTILS_H__
-#define __OT_COAP_UTILS_H__
+#ifndef LOKI_COAP_UTILS_H_
+#define LOKI_COAP_UTILS_H_
 
 #include <loki_server_client_interface.h>
 
@@ -21,4 +21,8 @@ int loki_coap_init(
 		speed_request_callback_t on_direction_request,
 		stop_request_t on_stop_request);		
 
-#endif
+
+#endif /* LOKI_COAP_UTILS_H_ */
+
+
+

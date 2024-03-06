@@ -21,11 +21,9 @@ static struct pwm_dt_spec pwm_dt = PWM_DT_SPEC_GET(PWM_NODE);
 static int PWM_CHANNEL    = 0;
 static const int DIR_A_CHANNEL  = 1;
 static const int DIR_B_CHANNEL  = 2;
-static __UINT_LEAST8_TYPE__ DIR_A_VIRTUAL_PIN = 0; 
-static __UINT_LEAST8_TYPE__ DIR_B_VIRTUAL_PIN = 0; 
 static int DEF_PERIOD = 30518; // in ns => 32768 Hz;
 
-
+/* FIXME: NOt sure, this works at all 
 static int fix_pwm_as_gpio(int channel, int value){
 	int pulse = 0;
 	pwm_flags_t flags = pwm_dt.flags;
@@ -37,29 +35,36 @@ static int fix_pwm_as_gpio(int channel, int value){
 	// see https://docs.zephyrproject.org/latest/doxygen/html/group__pwm__interface.html#ga8ff263177143d33c6d0a284b837bc4da
 	return pwm_set(pwm_dt.dev, channel, pwm_dt.period, pulse, flags);   
 }
+*/
 
- void motor_init(){
+ int motor_init(){
 	PWM_CHANNEL = DIR_B_CHANNEL;
 	// initally set both pins to 0 speed
-	motor_speed_change_pwm(DEF_PERIOD, 0);
+	if (motor_speed_change_pwm(DEF_PERIOD, 0) != 0){
+		printk("motor_init %d: pwm set fails\n", DIR_B_CHANNEL);
+		return 1;
+	}
 	PWM_CHANNEL = DIR_A_CHANNEL;
 	// initally set direction to A
-	motor_speed_change_pwm(DEF_PERIOD, 0);
-
+	if (motor_speed_change_pwm(DEF_PERIOD, 0) != 0){
+		printk("motor_init %d: pwm set fails\n", DIR_A_CHANNEL);
+		return 1;
+	}
+	return 0;
 }
 
 // Function to set speed directly
- void motor_speed_change_pwm(uint32_t pwm_period, uint32_t pwm_pulse){
+ int motor_speed_change_pwm(uint32_t pwm_period, uint32_t pwm_pulse){
 	if (PWM_CHANNEL == 0){
 				printk("Direction not set\n");
-		return;
+		return 0;
 	}
 	if (pwm_set(pwm_dt.dev, PWM_CHANNEL, pwm_period , pwm_pulse, pwm_dt.flags))
 	{
 		printk("pwm pin set fails\n");
-		return;
+		return 1;
 	}
-
+	return 0;
 }
 
 // set direction GPIO pins
