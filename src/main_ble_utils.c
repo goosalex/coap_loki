@@ -60,7 +60,17 @@ static struct bt_uuid_128 loki_direction_uuid =
 		0xbd,0xfc
 	);
 
+// Name characteristic
+static struct bt_uuid_128 loki_name_uuid =
+	BT_UUID_INIT_128(
+		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
+		0x06,0x00,
+		0xbd,0xfc
+	);
 
+
+static char *bleAdvName();
+static int newBleAdvName(char *newName);
 
 static ssize_t read_speed(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			  void *buf, uint16_t len, uint16_t offset)
@@ -149,7 +159,33 @@ static void speed_ccc_cfg_changed(const struct bt_gatt_attr *attr,
 	}
 }
 
+static _ssize_t read_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+              void *buf, uint16_t len, uint16_t offset)
+{
+    char *name = bleAdvName();
+    return bt_gatt_attr_read(conn, attr, buf, len, offset, name, strlen(name));                     
+}
 
+static _ssize_t write_name(struct bt_conn *conn,
+               const struct bt_gatt_attr *attr, const void *buf,
+               uint16_t len, uint16_t offset, uint8_t flags)
+{
+    int err;
+    char new_name[32];
+    if (len > sizeof(new_name)) {
+        return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+    }
+
+    memcpy(new_name, buf, len);
+    new_name[len] = '\0';
+
+    err = newBleAdvName(new_name);
+    if (err) {
+        return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
+    }
+
+    return len;
+}
 
 
 /* Loki Service Declaration */
@@ -183,9 +219,17 @@ BT_GATT_SERVICE_DEFINE(
                    BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
                    read_direction, write_direction, &direction_pattern),
+
+    BT_GATT_CHARACTERISTIC(&loki_name_uuid.uuid,
+                     BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
+                     BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+                     read_name, write_name, NULL),    
 				   );
 
-static const struct bt_data ad[] = { BT_DATA_BYTES(
+/* Advertising data */
+
+
+static struct bt_data ad[] = { BT_DATA_BYTES(
 	BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)) };
 
 static void connected(struct bt_conn *conn, uint8_t err)
@@ -212,6 +256,41 @@ static struct bt_conn_cb conn_callbacks = {
 	.connected = connected,
 	.disconnected = disconnected,
 };
+
+#define DEVICE_NAME		CONFIG_BT_DEVICE_NAME
+#define DEVICE_NAME_LEN		(sizeof(DEVICE_NAME) - 1)
+
+static struct bt_data sd[] = {
+	BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
+};
+
+static int newBleAdvName(char *newName) {
+  int err;
+    *sd = *ad;
+  // Update the device name
+  printk("Set new name: %s\n",newName);
+  err = bt_set_name(newName);
+  if(err) {
+    printk("Error setting device name: %d\n", err);
+  } else {
+printk("Changed device name to: %s\n", newName);
+    // Update the advertising and scan response data needed to update the advertised device name
+    // Only need to modify the scan response data in this example as name is in scan response here.
+    sd->data = newName;
+    sd->data_len = strlen(newName);
+    err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+    if(err) {
+      printk("Error setting advertised name: %d\n", err);
+    } else {
+      printk("Changed advertised name to: %s\n", newName);
+    }
+  }
+}
+
+static char *bleAdvName() {
+  char *name = bt_get_name();
+  return name;
+}
 
 void bt_notify_speed(void)
 {
