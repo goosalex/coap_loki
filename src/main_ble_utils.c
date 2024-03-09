@@ -30,7 +30,10 @@ static struct bt_uuid_128 loki_service_uuid =
 		0x01,0x00,
 		0xbd,0xfc
 	);
+// loki_service_uuid formatted as UUID is fcbd0001-5e25-4387-99b7-53a5495a0c35
+
 // Speed characteristic
+// formatted as UUID is fcbd0002-5e25-4387-99b7-53a5495a0c35
 static struct bt_uuid_128 loki_speed_uuid =
 	BT_UUID_INIT_128(
 		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
@@ -38,6 +41,7 @@ static struct bt_uuid_128 loki_speed_uuid =
 		0xbd,0xfc
 			);
 // Accelerate characteristic
+// formatted as UUID is fcbd0003-5e25-4387-99b7-53a5495a0c35
 static struct bt_uuid_128 loki_accelerate_uuid =
 	BT_UUID_INIT_128(
 		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
@@ -45,6 +49,7 @@ static struct bt_uuid_128 loki_accelerate_uuid =
 		0xbd,0xfc
 	);
 // PWM characteristic
+// formatted as UUID is fcbd0004-5e25-4387-99b7-53a5495a0c35
 static struct bt_uuid_128 loki_pwm_uuid =
 	BT_UUID_INIT_128(
 		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
@@ -53,6 +58,7 @@ static struct bt_uuid_128 loki_pwm_uuid =
 	);
 
 // Direction characteristic
+// formatted as UUID is fcbd0005-5e25-4387-99b7-53a5495a0c35
 static struct bt_uuid_128 loki_direction_uuid =
 	BT_UUID_INIT_128(
 		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
@@ -61,6 +67,7 @@ static struct bt_uuid_128 loki_direction_uuid =
 	);
 
 // Name characteristic
+// formatted as UUID is fcbd0006-5e25-4387-99b7-53a5495a0c35
 static struct bt_uuid_128 loki_name_uuid =
 	BT_UUID_INIT_128(
 		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
