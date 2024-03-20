@@ -14,6 +14,7 @@
 #include <openthread/thread.h>
 
 #include "loki_coap_utils.h"
+#include "main_loki.h"
 
 LOG_MODULE_REGISTER(loki_coap_utils, CONFIG_OT_COAP_UTILS_LOG_LEVEL);
 
@@ -176,32 +177,95 @@ end:
 }
 */
 
-static void speed_request_handler(void *context, otMessage *message,
-				  const otMessageInfo *message_info)
+static void speed_request_handler(void *context, otMessage *request_message,
+								  const otMessageInfo *message_info)
 {
 	uint8_t value;
 
 	ARG_UNUSED(context);
 
-	if (otCoapMessageGetType(message) != OT_COAP_TYPE_NON_CONFIRMABLE) {
+	if (otCoapMessageGetType(request_message) != OT_COAP_TYPE_NON_CONFIRMABLE)
+	{
 		LOG_ERR("Speed handler - Unexpected type of message");
 		goto end;
 	}
 
-	if (otCoapMessageGetCode(message) != OT_COAP_CODE_PUT) {
+	if (otCoapMessageGetCode(request_message) == OT_COAP_CODE_PUT)
+	{
+		if (otMessageRead(request_message, otMessageGetOffset(request_message), &value, 1) !=
+			1)
+		{
+			LOG_ERR("Speed handler - Missing speed parameter");
+			goto end;
+		}
+
+		LOG_INF("Received direct speed request: %c", value);
+
+		srv_context.on_speed_request(value);
+	}
+	else if (otCoapMessageGetCode(request_message) == OT_COAP_CODE_GET)
+	{
+		/* Response code is fairly complicated. This example from provisioning example:
+		 // Better put it in a generic method. And design Coap Interface well */
+		otError error = OT_ERROR_NO_BUFS;
+		otMessage *response;
+		const void *payload;
+		uint16_t payload_size;
+
+		response = otCoapNewMessage(srv_context.ot, NULL);
+		if (response == NULL)
+		{
+			goto end_response;
+		}
+
+		otCoapMessageInit(response, OT_COAP_TYPE_NON_CONFIRMABLE,
+						  OT_COAP_CODE_CONTENT);
+
+		error = otCoapMessageSetToken(
+			response, otCoapMessageGetToken(request_message),
+			otCoapMessageGetTokenLength(request_message));
+		if (error != OT_ERROR_NONE)
+		{
+			goto end_response;
+		}
+
+		error = otCoapMessageSetPayloadMarker(response);
+		if (error != OT_ERROR_NONE)
+		{
+			goto end_response;
+		}
+
+		payload = speed_value;
+		payload_size = sizeof(speed_value);
+
+		error = otMessageAppend(response, payload, payload_size);
+		if (error != OT_ERROR_NONE)
+		{
+			goto end_response;
+		}
+
+		error = otCoapSendResponse(srv_context.ot, response, message_info);
+		if (error != OT_ERROR_NONE)
+		{
+			goto end_response;
+		}
+		LOG_INF("Sent direct speed response: %d", speed_value);
+
+	end_response:
+		if (error != OT_ERROR_NONE && response != NULL)
+		{
+			otMessageFree(response);
+			LOG_ERR("Failed to send direct speed response");
+		}
+
+		goto end;
+	}
+	else
+	{
+
 		LOG_ERR("Speed handler - Unexpected CoAP code");
 		goto end;
 	}
-
-	if (otMessageRead(message, otMessageGetOffset(message), &value, 1) !=
-	    1) {
-		LOG_ERR("Speed handler - Missing speed parameter");
-		goto end;
-	}
-
-	LOG_INF("Received direct speed request: %c", value);
-
-	srv_context.on_speed_request(value);
 
 end:
 	return;
@@ -324,6 +388,7 @@ int loki_coap_init(
 	srv_context.ot = openthread_get_default_instance();
 	if (!srv_context.ot) {
 		LOG_ERR("There is no valid OpenThread instance");
+		printk("There is no valid OpenThread instance\n");			
 		error = OT_ERROR_FAILED;
 		goto end;
 	}
@@ -346,9 +411,10 @@ int loki_coap_init(
 	error = otCoapStart(srv_context.ot, COAP_PORT);
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Failed to start OT CoAP. Error: %d", error);
+		printk("Failed to start OT CoAP. Error: %d", error);
 		goto end;
 	}
-
+	printk("Coap Init done");
 end:
 	return error == OT_ERROR_NONE ? 0 : 1;
 }
