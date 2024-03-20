@@ -30,6 +30,9 @@
 #include <zephyr/drivers/pwm.h>
 #include <stdio.h>
 
+#include <zephyr/net/openthread.h>
+#include <openthread/thread.h>
+#include <dk_buttons_and_leds.h>
 #include "main_ble_utils.h"
 #include "loki_coap_utils.h"
 #include "main_loki.h"
@@ -42,6 +45,7 @@
 #include "motors/motorTB67driver.c"
 #endif
 
+#define OT_CONNECTION_LED 0
 
 
 /*
@@ -132,6 +136,32 @@ void stop_motor()
 	change_speed_directly(0);
 }
 
+static void on_thread_state_changed(otChangedFlags flags, struct openthread_context *ot_context,
+				    void *user_data)
+{
+	if (flags & OT_CHANGED_THREAD_ROLE) {
+		switch (otThreadGetDeviceRole(ot_context->instance)) {
+		case OT_DEVICE_ROLE_CHILD:
+		case OT_DEVICE_ROLE_ROUTER:
+		case OT_DEVICE_ROLE_LEADER:
+			dk_set_led_on(OT_CONNECTION_LED);
+			break;
+
+		case OT_DEVICE_ROLE_DISABLED:
+		case OT_DEVICE_ROLE_DETACHED:
+		default:
+			dk_set_led_off(OT_CONNECTION_LED);
+			// deactivate_provisionig();
+			break;
+		}
+	}
+}
+static struct openthread_state_changed_cb ot_state_chaged_cb = { .state_changed_cb =
+									 on_thread_state_changed };
+
+
+
+
 int main(void)
 {
 	int err;
@@ -147,6 +177,9 @@ int main(void)
 		change_direction,
 		stop_motor) != 0) {
 			printk("CoAP init failed\n");			
+		} else {
+				openthread_state_changed_cb_register(openthread_get_default_context(), &ot_state_chaged_cb);
+			    openthread_start(openthread_get_default_context());
 		}
 
 
