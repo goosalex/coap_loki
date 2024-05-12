@@ -237,7 +237,9 @@ BT_GATT_SERVICE_DEFINE(
 
 
 static struct bt_data ad[] = { BT_DATA_BYTES(
-	BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)) };
+	BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+	BT_DATA(BT_DATA_UUID128_ALL, loki_service_uuid.val, 16),
+	BT_DATA(BT_DATA_NAME_SHORTENED, "LOKI", 4), };
 
 static void connected(struct bt_conn *conn, uint8_t err)
 {
@@ -271,9 +273,10 @@ static struct bt_data sd[] = {
 	BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
 };
 
+
 static int newBleAdvName(char *newName) {
   int err;
-    *sd = *ad;
+  
   // Update the device name
   printk("Set new name: %s\n",newName);
   err = bt_set_name(newName);
@@ -312,7 +315,7 @@ int bt_ready(void)
 
 	printk("Bluetooth initialized\n");
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN_NAME, ad, ARRAY_SIZE(ad), NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), ad, ARRAY_SIZE(ad)); // ,NULL, 0);
 	if (err) {
 		printk("Advertising failed to start (err %d)\n", err);
 		return err;

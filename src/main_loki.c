@@ -99,5 +99,15 @@ void change_direction(uint8_t new_pattern){
 	}
 }
 
+void define_light(){
+	printk("noop");
+}
 
+/* side: forward[1 bit], reverse[1 bit], 
+   color: on: 0xFF......, off: 0x00...... , rgb: 0xA0RRGGBB 
+
+*/
+void set_lights(u_int8_t side, u_int32_t color, u_int8_t pattern){
+	printk("noop");
+}
 

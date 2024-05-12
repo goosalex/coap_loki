@@ -136,6 +136,12 @@ void stop_motor()
 	change_speed_directly(0);
 }
 
+void set_name(char *buf, uint16_t len)
+{
+	
+	// TODO: Implement, reset BLE Adv Name and restart BLE and CoAP
+}
+
 static void on_thread_state_changed(otChangedFlags flags, struct openthread_context *ot_context,
 				    void *user_data)
 {
@@ -175,7 +181,9 @@ int main(void)
 		change_speed_directly,
 		speed_set_acceleration,
 		change_direction,
-		stop_motor) != 0) {
+		stop_motor,
+		set_name
+		) != 0) {
 			printk("CoAP init failed\n");			
 		} else {
 				openthread_state_changed_cb_register(openthread_get_default_context(), &ot_state_chaged_cb);
