@@ -22,9 +22,9 @@
     /delete-property/ ch1-inverted;
 }; */
 
-#define MOTOR0PIN 14
-#define MOTOR1PIN 13
-#define MOTOR2PIN 15
+#define MOTOR0PIN 4
+#define MOTOR1PIN 3
+#define MOTOR2PIN 5
 /{
          
     chosen {
