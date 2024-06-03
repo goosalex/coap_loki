@@ -73,3 +73,18 @@
 &gpio0 {
     status = "okay";
 };
+&led0 {
+    gpios = <&gpio0 13 0>;
+};
+
+&led1 {
+    gpios = <&gpio0 14 0>;
+};
+
+&led2 {
+    gpios = <&gpio0 15 0>;
+};
+
+&led3 {
+    gpios = <&gpio0 16 0>;
+};

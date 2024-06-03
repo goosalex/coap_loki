@@ -187,6 +187,10 @@ int main(void)
 		printk("Motor init failed\n");
 		return -1;
 	}
+dk_set_led_on(OT_CONNECTION_LED);
+dk_set_led_on(0);
+dk_set_led_on(1);
+dk_set_led_on(2);
 
 	if (loki_coap_init(
 		change_speed_directly,
