@@ -18,6 +18,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/byteorder.h>
+#include <zephyr/logging/log.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
@@ -45,8 +46,9 @@
 #include "motors/motorTB67driver.c"
 #endif
 
-#define OT_CONNECTION_LED 0
+#define OT_CONNECTION_LED 3
 
+LOG_MODULE_REGISTER(logging_logic, LOG_LEVEL_DBG);
 
 /*
  * Devicetree helper macro which gets the 'flags' cell from a 'gpios'
@@ -117,7 +119,7 @@ void notify_speed_change()
 {
 		// Notify if Notifications are enabled
 	if (speed_notify_enabled) {
-		printk("Sending Speed Notifications to GATT Client\n");
+		LOG_DBG("Sending Speed Notifications to GATT Client\n");
 		/* original demo code:
 				bt_gatt_notify(NULL, &simple_service.attrs[1], &button_1_value,
 			       sizeof(button_1_value));
@@ -151,12 +153,14 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 		case OT_DEVICE_ROLE_ROUTER:
 		case OT_DEVICE_ROLE_LEADER:
 			dk_set_led_on(OT_CONNECTION_LED);
+			LOG_INF("Thread Role: Child/Router/Leader\n");
 			break;
 
 		case OT_DEVICE_ROLE_DISABLED:
 		case OT_DEVICE_ROLE_DETACHED:
 		default:
-			dk_set_led_off(OT_CONNECTION_LED);
+			dk_set_led_on(OT_CONNECTION_LED);
+			LOG_INF("Thread Role: Disabled/Detached\n");
 			// deactivate_provisionig();
 			break;
 		}
@@ -173,7 +177,7 @@ int main(void)
 	int err;
 
 	if (motor_init() != 0 ) {
-		printk("Motor init failed\n");
+		LOG_ERR("Motor init failed\n");
 		return -1;
 	}
 
@@ -184,27 +188,33 @@ int main(void)
 		stop_motor,
 		set_name
 		) != 0) {
-			printk("CoAP init failed\n");			
+			LOG_ERR("CoAP init failed\n");			
 		} else {
-				openthread_state_changed_cb_register(openthread_get_default_context(), &ot_state_chaged_cb);
-			    openthread_start(openthread_get_default_context());
+			if (0 != openthread_state_changed_cb_register(openthread_get_default_context(), &ot_state_chaged_cb)){
+				LOG_ERR("OpenThread State Change Callback Registration failed\n");
+			};
+			if ( 0!= openthread_start(openthread_get_default_context())){
+				LOG_ERR("OpenThread Start failed\n");
+			} else {
+				LOG_INF("OpenThread Started\n");
+			}
 		}
 
 
 	err = bt_enable(NULL);
 	if (err) {
-		printk("Bluetooth init failed (err %d)\n", err);
+		LOG_ERR("Bluetooth init failed (err %d)\n", err);
 		return -2;
 	}
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		err = settings_load();
 			if (err) {
-			printk("Bluetooth settings load failed (err %d)\n", err);
+			LOG_WRN("Bluetooth settings load failed (err %d)\n", err);
 			return -3;
 		}
 	}
 	if (bt_ready() != 0) {
-		printk("Bluetooth setup failed\n");
+		LOG_ERR("Bluetooth setup failed\n");
 		return -4;
 	}
 	bt_register();	
