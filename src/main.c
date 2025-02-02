@@ -31,6 +31,7 @@
 #include <zephyr/drivers/pwm.h>
 #include <stdio.h>
 
+#include <zephyr/logging/log.h>
 #include <zephyr/net/openthread.h>
 #include <openthread/thread.h>
 #include <dk_buttons_and_leds.h>
@@ -105,7 +106,7 @@ static const struct gpio_dt_spec led2_switch =
 
 
 
-
+LOG_MODULE_REGISTER(loki_main, CONFIG_COAP_SERVER_LOG_LEVEL);
 
 
 
@@ -147,10 +148,17 @@ void set_name(char *buf, uint16_t len)
 static void on_thread_state_changed(otChangedFlags flags, struct openthread_context *ot_context,
 				    void *user_data)
 {
-	if (flags & OT_CHANGED_THREAD_ROLE) {
+	static int ret;
+if (flags & OT_CHANGED_THREAD_ROLE) {
 		switch (otThreadGetDeviceRole(ot_context->instance)) {
 		case OT_DEVICE_ROLE_CHILD:
+			ret = dk_set_led_on(OT_CONNECTION_LED);
+			printk("OT new state  Childr\n");
+			break;			
 		case OT_DEVICE_ROLE_ROUTER:
+			ret = dk_set_led_on(OT_CONNECTION_LED);
+			printk("OT new state Router\n");
+			break;		
 		case OT_DEVICE_ROLE_LEADER:
 			dk_set_led_on(OT_CONNECTION_LED);
 			LOG_INF("Thread Role: Child/Router/Leader\n");
@@ -175,11 +183,16 @@ static struct openthread_state_changed_cb ot_state_chaged_cb = { .state_changed_
 int main(void)
 {
 	int err;
-
+	printk("Startup\r");
+	LOG_INF("%s","Startup Information:\n");
 	if (motor_init() != 0 ) {
 		LOG_ERR("Motor init failed\n");
 		return -1;
 	}
+dk_set_led_on(OT_CONNECTION_LED);
+dk_set_led_on(0);
+dk_set_led_on(1);
+dk_set_led_on(2);
 
 	if (loki_coap_init(
 		change_speed_directly,

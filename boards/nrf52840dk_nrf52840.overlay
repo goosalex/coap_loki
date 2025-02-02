@@ -22,9 +22,9 @@
     /delete-property/ ch1-inverted;
 }; */
 
-#define MOTOR0PIN 14
-#define MOTOR1PIN 13
-#define MOTOR2PIN 15
+#define MOTOR0PIN 4
+#define MOTOR1PIN 3
+#define MOTOR2PIN 5
 /{
          
     chosen {
@@ -72,4 +72,19 @@
 
 &gpio0 {
     status = "okay";
+};
+&led0 {
+    gpios = <&gpio0 13 0>;
+};
+
+&led1 {
+    gpios = <&gpio0 14 0>;
+};
+
+&led2 {
+    gpios = <&gpio0 15 0>;
+};
+
+&led3 {
+    gpios = <&gpio0 16 0>;
 };
