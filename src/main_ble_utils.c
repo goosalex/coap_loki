@@ -17,10 +17,13 @@
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/services/bas.h>
+#include <zephyr/settings/settings.h>
+#include <hw_id.h>
 #include "main_loki.h"
-
+#include "main_ble_utils.h"
 
 static struct bt_conn *default_conn;
+
 
 
 /* Loki Service */
@@ -66,7 +69,7 @@ static struct bt_uuid_128 loki_direction_uuid =
 		0xbd,0xfc
 	);
 
-// Name characteristic
+// Long Name characteristic
 // formatted as UUID is fcbd0006-5e25-4387-99b7-53a5495a0c35
 static struct bt_uuid_128 loki_name_uuid =
 	BT_UUID_INIT_128(
@@ -75,9 +78,33 @@ static struct bt_uuid_128 loki_name_uuid =
 		0xbd,0xfc
 	);
 
+// virtual (DCC) address characteristic
+// formatted as UUID is fcbd0007-5e25-4387-99b7-53a5495a0c35
+static struct bt_uuid_128 loki_dcc_uuid =
+	BT_UUID_INIT_128(
+		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
+		0x07,0x00,
+		0xbd,0xfc
+	);
 
-static char *bleAdvName();
-static int newBleAdvName(char *newName);
+// OpenThread  Joiner Credential
+// see https://openthread.io/guides/border-router/external-commissioning/prepare#prepare_the_joiner_device
+// formatted as UUID is fcbd000a-5e25-4387-99b7-53a5495a0c35
+static struct bt_uuid_128 loki_credential_uuid =
+	BT_UUID_INIT_128(
+		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
+		0x0a,0x00,
+		0xbd,0xfc
+	);	
+
+static struct bt_uuid_128 loki_ble_name_uuid =
+	BT_UUID_INIT_128(
+		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
+		0x0b,0x00,
+		0xbd,0xfc
+	);	
+
+
 
 static ssize_t read_speed(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			  void *buf, uint16_t len, uint16_t offset)
@@ -178,7 +205,8 @@ static _ssize_t write_name(struct bt_conn *conn,
                uint16_t len, uint16_t offset, uint8_t flags)
 {
     int err;
-    char new_name[32];
+	
+		char new_name[MAX_LEN_FULL_NAME];
     if (len > sizeof(new_name)) {
         return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
     }
@@ -194,6 +222,57 @@ static _ssize_t write_name(struct bt_conn *conn,
     return len;
 }
 
+static _ssize_t read_ble_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+			  void *buf, uint16_t len, uint16_t offset)
+{
+	char *name = bleAdvName();
+	return bt_gatt_attr_read(conn, attr, buf, len, offset, name, strlen(name));                     
+}
+
+
+static _ssize_t write_ble_name(struct bt_conn *conn,
+			   const struct bt_gatt_attr *attr, const void *buf,
+			   uint16_t len, uint16_t offset, uint8_t flags)
+{
+	int err;
+	char new_name[MAX_LEN_BLE_NAME];
+	if (len > sizeof(new_name)) {
+		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+	}
+
+	memcpy(new_name, buf, len);
+	new_name[len] = '\0';
+
+	err = newBleAdvName(new_name);
+	if (err) {
+		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
+	}
+
+	return len;
+}
+// TODO: Implement the DCC characteristic
+static ssize_t read_dcc(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+			  void *buf, uint16_t len, uint16_t offset)
+{
+	return bt_gatt_attr_read(conn, attr, buf, len, offset, &accel_order,
+				 sizeof(accel_order));
+}
+
+static ssize_t write_dcc(struct bt_conn *conn,
+			   const struct bt_gatt_attr *attr, const void *buf,
+			   uint16_t len, uint16_t offset, uint8_t flags)
+{
+	speed_set_acceleration(((int16_t *)buf)[0]);
+	notify_speed_change();
+	return len;
+}
+
+static ssize_t write_credential(struct bt_conn *conn,
+			   const struct bt_gatt_attr *attr, const void *buf,
+			   uint16_t len, uint16_t offset, uint8_t flags)
+{
+	return len;
+}
 
 /* Loki Service Declaration */
 
@@ -231,15 +310,35 @@ BT_GATT_SERVICE_DEFINE(
                      BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                      BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
                      read_name, write_name, NULL),    
-				   );
+  
+    BT_GATT_CHARACTERISTIC(&loki_dcc_uuid.uuid,
+                     BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
+                     BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+                     read_dcc, write_dcc, NULL),    
+
+	// Setting the credential initiates a joiner procedure, has never be to read
+    BT_GATT_CHARACTERISTIC(&loki_credential_uuid.uuid,
+            	     BT_GATT_CHRC_WRITE,
+                     BT_GATT_PERM_WRITE,
+                     NULL, write_credential, NULL),    	
+
+    BT_GATT_CHARACTERISTIC(&loki_ble_name_uuid.uuid,
+                     BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
+                     BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+                     read_ble_name, write_ble_name, NULL)  
+
+				   );				   
 
 /* Advertising data */
-
+// Problem: The payload is limited to 31 bytes, so the name shound not be too long
+// and as this is a custom service, a 16 Byte UUID is needed
+// Solution: Use the short name and the scan response to send the full name
+// Problem: The scan response is not always sent, so the name may not be updated 
 
 static struct bt_data ad[] = { BT_DATA_BYTES(
-	BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-	BT_DATA(BT_DATA_UUID128_ALL, loki_service_uuid.val, 16),
-	BT_DATA(BT_DATA_NAME_SHORTENED, "LOKI", 4), };
+	BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)), // 3 Bytes (length,type and value Byte)
+	BT_DATA(BT_DATA_UUID128_ALL, loki_service_uuid.val, 16), // 18 Bytes
+	BT_DATA(BT_DATA_NAME_SHORTENED, "LOKI", 4), };  // 31 Bytes - 3 - 18 - 2 = 8 Bytes left for the short name
 
 static void connected(struct bt_conn *conn, uint8_t err)
 {
@@ -295,6 +394,7 @@ printk("Changed device name to: %s\n", newName);
       printk("Changed advertised name to: %s\n", newName);
     }
   }
+  return err;
 }
 
 static char *bleAdvName() {

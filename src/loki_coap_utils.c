@@ -12,9 +12,11 @@
 #include <openthread/ip6.h>
 #include <openthread/message.h>
 #include <openthread/thread.h>
-
+#include <stdio.h>
 #include "loki_coap_utils.h"
 #include "main_loki.h"
+#include <openthread/srp_client.h>
+#include <openthread/srp_client_buffers.h>
 
 LOG_MODULE_REGISTER(loki_coap_utils, CONFIG_OT_COAP_UTILS_LOG_LEVEL);
 
@@ -310,7 +312,7 @@ static otCoapOptionContentFormat getContentFormat(otMessage *request_message)
 	otCoapOption *option;
 	otError error;
 	LOG_INF("Getting content format option");
-	otCoapOptionIteratorInit(request_message, iterator);
+	otCoapOptionIteratorInit(iterator, request_message);
 	LOG_INF("Iterator Init done");
 	option = otCoapOptionIteratorGetFirstOptionMatching(iterator,OT_COAP_OPTION_CONTENT_FORMAT);
 	LOG_INF("Option found");
@@ -481,6 +483,9 @@ static void coap_default_handler(void *context, otMessage *message,
 	LOG_INF("Received CoAP message that does not match any request "
 		"or resource");
 }
+
+
+
 
 /* TODO REMOVE after Re-implementation for speed, acc , stop
 void ot_coap_activate_provisioning(void)

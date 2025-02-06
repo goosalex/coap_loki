@@ -10,7 +10,7 @@
  int8_t accel_order;
  uint8_t direction_pattern;
 
-LOG_MODULE_DECLARE(logging_logic, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(logging_logic, LOG_LEVEL_DBG);
 
  void change_pwm_base(uint16_t new_base)
 {

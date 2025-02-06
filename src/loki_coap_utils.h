@@ -24,6 +24,9 @@ int loki_coap_init(
 		name_set_request_callback_t on_name_request);		
 
 
+
+
+
 #endif /* LOKI_COAP_UTILS_H_ */
 
 
