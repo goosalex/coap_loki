@@ -9,8 +9,10 @@ static char ble_name[MAX_LEN_BLE_NAME+1] = "LOKI";
 static char full_name[MAX_LEN_FULL_NAME+1] = "LOKI";
 static uint16_t dcc_address = 3;
 
-static char *bleAdvName();
-static int newBleAdvName(char *newName);
+static char *getBleShortName();
+static char *getBleLongName();
+static int updateBleLongName(char *newName);
+static int updateBleShortName(char *newName);
 
 extern void bt_notify_speed(void);
 extern void bt_register(void);

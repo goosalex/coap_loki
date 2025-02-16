@@ -10,6 +10,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/byteorder.h>
+#include <zephyr/logging/log.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
@@ -22,9 +23,11 @@
 #include "main_loki.h"
 #include "main_ble_utils.h"
 
+#include "main_ot_utils.h"
+
 static struct bt_conn *default_conn;
 
-
+LOG_MODULE_DECLARE(loki_main, CONFIG_COAP_SERVER_LOG_LEVEL);
 
 /* Loki Service */
 static struct bt_uuid_128 loki_service_uuid =
@@ -196,7 +199,7 @@ static void speed_ccc_cfg_changed(const struct bt_gatt_attr *attr,
 static _ssize_t read_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
               void *buf, uint16_t len, uint16_t offset)
 {
-    char *name = bleAdvName();
+    char *name = getBleLongName();
     return bt_gatt_attr_read(conn, attr, buf, len, offset, name, strlen(name));                     
 }
 
@@ -214,7 +217,7 @@ static _ssize_t write_name(struct bt_conn *conn,
     memcpy(new_name, buf, len);
     new_name[len] = '\0';
 
-    err = newBleAdvName(new_name);
+    err = updateBleLongName(new_name);
     if (err) {
         return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
     }
@@ -225,7 +228,7 @@ static _ssize_t write_name(struct bt_conn *conn,
 static _ssize_t read_ble_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			  void *buf, uint16_t len, uint16_t offset)
 {
-	char *name = bleAdvName();
+	char *name = getBleShortName();
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, name, strlen(name));                     
 }
 
@@ -243,7 +246,7 @@ static _ssize_t write_ble_name(struct bt_conn *conn,
 	memcpy(new_name, buf, len);
 	new_name[len] = '\0';
 
-	err = newBleAdvName(new_name);
+	err = updateBleShortName(new_name);
 	if (err) {
 		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
 	}
@@ -271,6 +274,14 @@ static ssize_t write_credential(struct bt_conn *conn,
 			   const struct bt_gatt_attr *attr, const void *buf,
 			   uint16_t len, uint16_t offset, uint8_t flags)
 {
+	int err = 0;
+	char cred[len+1];
+	memcpy(cred, buf, len);
+	cred[len] = '\0';
+	err = start_thread_joiner(cred);
+	if (err) {
+		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
+	}
 	return len;
 }
 
@@ -335,10 +346,13 @@ BT_GATT_SERVICE_DEFINE(
 // Solution: Use the short name and the scan response to send the full name
 // Problem: The scan response is not always sent, so the name may not be updated 
 
-static struct bt_data ad[] = { BT_DATA_BYTES(
+static struct bt_data ad[3] = { BT_DATA_BYTES(
 	BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)), // 3 Bytes (length,type and value Byte)
 	BT_DATA(BT_DATA_UUID128_ALL, loki_service_uuid.val, 16), // 18 Bytes
 	BT_DATA(BT_DATA_NAME_SHORTENED, "LOKI", 4), };  // 31 Bytes - 3 - 18 - 2 = 8 Bytes left for the short name
+	// positional index of short name in "ad" advertisement data array structure. Used for further updates.
+	#define BLE_ADV_DATA_NAME_IDX 2;
+
 
 static void connected(struct bt_conn *conn, uint8_t err)
 {
@@ -373,7 +387,7 @@ static struct bt_data sd[] = {
 };
 
 
-static int newBleAdvName(char *newName) {
+static int updateBleLongName(char *newName) {
   int err;
   
   // Update the device name
@@ -389,17 +403,62 @@ printk("Changed device name to: %s\n", newName);
     sd->data_len = strlen(newName);
     err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
     if(err) {
-      printk("Error setting advertised name: %d\n", err);
+      printk("Error setting advertised names: %d\n", err);
     } else {
-      printk("Changed advertised name to: %s\n", newName);
+      printk("Changed advertised long name to: %s\n", newName);
     }
   }
   return err;
 }
 
-static char *bleAdvName() {
+static int updateBleShortName(char *newName) {
+  int err;
+  /* Advertising data */
+// Problem: The payload is limited to 31 bytes, so the name shound not be too long
+// and as this is a custom service, a 16 Byte UUID is needed
+// Solution: Use the short name and the scan response to send the full name
+// Problem: The scan response is not always sent, so the name may not be updated 
+
+
+  // Update the device name
+  LOG_INF("Set new advertised name: %s\n",newName);
+
+	int ad_name_idx = BLE_ADV_DATA_NAME_IDX;
+	ad[ad_name_idx].data = newName;
+	ad[ad_name_idx].data_len = strlen(newName);
+	err = bt_ready();
+	if (err) {
+		LOG_ERR("Error starting adverting again: %d\n", err);
+	}
+    // Update the advertising and scan response data needed to update the advertised device name
+	LOG_INF("Stoppping advertising\n");
+	err = bt_le_adv_stop();
+	if (err) {
+		LOG_ERR("Error stopping advertising: %d\n", err);
+	}
+	LOG_INF("Starting advertising again\n");
+	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+	if (err) {
+		LOG_ERR("Error starting adverting again: %d\n", err);
+	}
+    err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+    if(err) {
+      LOG_ERR("Error saving advertised names: %d\n", err);
+    } else {
+      LOG_INF("Changed advertised long name to: %s\n", newName);
+    }  
+  return err;
+}
+
+
+static char *getBleLongName() {
   char *name = bt_get_name();
   return name;
+}
+
+static char *getBleShortName() {
+	int ad_name_idx = BLE_ADV_DATA_NAME_IDX;
+  return ad[ad_name_idx].data;
 }
 
 void bt_notify_speed(void)
@@ -411,13 +470,11 @@ void bt_notify_speed(void)
 
 int bt_ready(void)
 {
-	int err;
-
-	printk("Bluetooth initialized\n");
-
-	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), ad, ARRAY_SIZE(ad)); // ,NULL, 0);
+	int err;	
+	bt_le_adv_stop();
+	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd)); // ,NULL, 0);
 	if (err) {
-		printk("Advertising failed to start (err %d)\n", err);
+		LOG_ERR("Advertising failed to start (err %d)\n", err);
 		return err;
 	}
 

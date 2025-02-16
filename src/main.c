@@ -33,7 +33,6 @@
 #include <zephyr/drivers/pwm.h>
 #include <stdio.h>
 
-#include <zephyr/logging/log.h>
 #include <zephyr/net/openthread.h>
 #include <openthread/thread.h>
 #include <openthread/srp_client.h>
@@ -42,6 +41,7 @@
 #include <dk_buttons_and_leds.h>
 #include "main_ble_utils.h"
 #include "loki_coap_utils.h"
+#include "main_ot_utils.h"
 #include "main_loki.h"
 
 #if MOTOR_DRV8871
@@ -171,6 +171,8 @@ void init_default_settings()
 			LOG_ERR("hw_id_get failed (err %d)\n", err);		
 	}
 
+
+
 	// Set the default name
     // Ensure the buffer is large enough to hold the new name
     char ble_name[MAX_LEN_BLE_NAME + 1]; // "LOKI" + 4 characters from buf + null terminator
@@ -186,8 +188,9 @@ void init_default_settings()
 
 	strcpy(full_name,ble_name);
 
-	dcc_address = 3;
+	dcc_address = 0;
 }
+
 
 
 otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  char *instance_name, char *service_name);
@@ -253,11 +256,11 @@ void load_settings()
 	// Load the settings from the flash
 	rc = settings_subsys_init();
 	if (rc) {
-		printk("settings subsys initialization: fail (err %d)\n", rc);
+		LOG_ERR("settings subsys initialization: fail (err %d)\n", rc);
 		return;
 	}
 
-	printk("settings subsys initialization: OK.\n");
+	LOG_INF("settings subsys initialization: OK.\n");
 
 	rc = settings_register(&loki_settings_handler);
 }
@@ -313,7 +316,7 @@ void modify_short_name(char *buf, uint16_t len)
 		ble_name[MAX_LEN_BLE_NAME] = '\0';
 	}
 	
-	newBleAdvName(ble_name);
+	updateBleLongName(ble_name);
 	init_srp();
 }
 
@@ -461,27 +464,35 @@ dk_set_led_on(OT_CONNECTION_LED);
 dk_set_led_on(0);
 dk_set_led_on(1);
 dk_set_led_on(2);
+	load_settings();
 
-	if (loki_coap_init(
-		change_speed_directly,
-		speed_set_acceleration,
-		change_direction,
-		stop_motor,
-		modify_full_name
-		) != 0) {
-			LOG_ERR("CoAP init failed\n");			
-		} else {
-			if (0 != openthread_state_changed_cb_register(openthread_get_default_context(), &ot_state_chaged_cb)){
-				LOG_ERR("OpenThread State Change Callback Registration failed\n");
-			};
-			if ( 0!= openthread_start(openthread_get_default_context())){
-				LOG_ERR("OpenThread Start failed\n");
+	// TODO : Check if otDatasetIsCommissioned. Only start Thread IF already commissioned (avoid automatic commissioning after reset)
+	// to decommission without reset/reboot, set something in dataset invalid/clear name/key ?
+	if (otDatasetIsCommissioned){
+		LOG_INF("Thread already commissioned\n");
+	
+		if (loki_coap_init(
+			change_speed_directly,
+			speed_set_acceleration,
+			change_direction,
+			stop_motor,
+			modify_full_name
+			) != 0) {
+				LOG_ERR("CoAP init failed\n");			
 			} else {
-				LOG_INF("OpenThread Started\n");
+				if (0 != openthread_state_changed_cb_register(openthread_get_default_context(), &ot_state_chaged_cb)){
+					LOG_ERR("OpenThread State Change Callback Registration failed\n");
+				};
+				if ( 0!= openthread_start(openthread_get_default_context())){
+					LOG_ERR("OpenThread Start failed\n");
+				} else {
+					LOG_INF("OpenThread Started\n");
+				}
 			}
-		}
 
-
+	} else {
+		LOG_INF("Thread not commissioned\n");
+	}
 	err = bt_enable(NULL);
 	if (err) {
 		LOG_ERR("Bluetooth init failed (err %d)\n", err);

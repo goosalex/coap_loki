@@ -18,6 +18,8 @@
 #include <openthread/srp_client.h>
 #include <openthread/srp_client_buffers.h>
 
+#include "main_ot_utils.h"
+
 LOG_MODULE_REGISTER(loki_coap_utils, CONFIG_OT_COAP_UTILS_LOG_LEVEL);
 
 static otCoapOptionContentFormat getContentFormat(otMessage *request_message);
