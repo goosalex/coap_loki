@@ -49,6 +49,7 @@ int disable_thread(otInstance *p_instance){
 	otDeviceRole role = otThreadGetDeviceRole(p_instance);
     
     otOperationalDataset aDataset;
+    otOperationalDatasetTlvs sDatasetTlvs;
 
 	if (role == OT_DEVICE_ROLE_DISABLED) {
 		LOG_INF("Thread network already disabled\n");
@@ -60,9 +61,16 @@ int disable_thread(otInstance *p_instance){
 			return -1;
 		}
 	}
+    LOG_INF("Blanking out new Dataset var\n");
+
     memset(&aDataset, 0, sizeof(aDataset)); // clear out all data
+	LOG_INF("Setting PanID\n");
     aDataset.mPanId = 0xFFFF; // broadcast PAN ID to find any network
-    error = otDatasetSetActive(p_instance, &aDataset); // blank out the active dataset
+    	LOG_INF("Set new Dataset Active\n");
+
+    otDatasetConvertToTlvs(&aDataset, &sDatasetTlvs);
+    error = otDatasetSetActiveTlvs(p_instance, &sDatasetTlvs);
+   //  error = otDatasetSetActive(p_instance, &aDataset); // blank out the active dataset
 
     /*
 	// override the current network settings with empty values
@@ -114,7 +122,7 @@ int start_thread_joiner(char *secret)
 		LOG_ERR("Failed to disable current Thread settings: %s", otThreadErrorToString(error));
 		return -1;
 	}
-
+    LOG_INF("Starting joiner\n");
 	error = otJoinerStart(p_instance,
 									secret,
 									NULL,

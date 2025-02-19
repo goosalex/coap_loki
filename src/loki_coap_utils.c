@@ -233,7 +233,7 @@ static void speed_request_handler(void *context, otMessage *request_message,
 		 // Better put it in a generic method. And design Coap Interface well */
 		otError error = OT_ERROR_NO_BUFS;
 		otMessage *response;
-		static char *payload[4];
+		static char payload[40];
 		uint16_t payload_size;
 
 		response = otCoapNewMessage(srv_context.ot, NULL);
@@ -260,7 +260,7 @@ static void speed_request_handler(void *context, otMessage *request_message,
 				goto end_response;
 			}
 
-			payload_size = sprintf(&payload, "%d",speed_value);
+			payload_size = sprintf(payload, "%d",speed_value);
 		} else {
 			error = otCoapMessageAppendContentFormatOption(response, OT_COAP_OPTION_CONTENT_FORMAT_OCTET_STREAM);
 			if (error != OT_ERROR_NONE)
@@ -274,7 +274,7 @@ static void speed_request_handler(void *context, otMessage *request_message,
 		{
 			goto end_response;
 		}
-		error = otMessageAppend(response, payload, payload_size);
+		error = otMessageAppend(response, &payload, payload_size);
 		if (error != OT_ERROR_NONE)
 		{
 			goto end_response;
@@ -466,12 +466,19 @@ static void name_request_handler(void *context, otMessage *message,
 				  const otMessageInfo *message_info)
 {
 	ARG_UNUSED(context);
-	ARG_UNUSED(message);
+
 	ARG_UNUSED(message_info);
 
 	LOG_INF("Received name request");
-	char *buf;
-	uint16_t len;
+	
+	uint16_t len = otMessageGetLength(message);
+	uint16_t offset = otMessageGetOffset(message);
+	char *buf = malloc(len);
+	if (buf == NULL) {
+		LOG_ERR("Failed to allocate memory for name request");
+		return;
+	}
+
 	srv_context.on_name_request(buf, len);
 }
 

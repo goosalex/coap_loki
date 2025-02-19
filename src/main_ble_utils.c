@@ -387,7 +387,7 @@ static struct bt_data sd[] = {
 };
 
 
-static int updateBleLongName(char *newName) {
+ int updateBleLongName(char *newName) {
   int err;
   
   // Update the device name
@@ -404,6 +404,11 @@ printk("Changed device name to: %s\n", newName);
     err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
     if(err) {
       printk("Error setting advertised names: %d\n", err);
+	  /* -11 means: not currently advertising
+	  	if (!atomic_test_bit(adv->flags, BT_ADV_ENABLED)) {
+		return -EAGAIN;
+	}
+	  */
     } else {
       printk("Changed advertised long name to: %s\n", newName);
     }
@@ -411,7 +416,7 @@ printk("Changed device name to: %s\n", newName);
   return err;
 }
 
-static int updateBleShortName(char *newName) {
+ int updateBleShortName(char *newName) {
   int err;
   /* Advertising data */
 // Problem: The payload is limited to 31 bytes, so the name shound not be too long
@@ -451,12 +456,12 @@ static int updateBleShortName(char *newName) {
 }
 
 
-static char *getBleLongName() {
+ char *getBleLongName() {
   char *name = bt_get_name();
   return name;
 }
 
-static char *getBleShortName() {
+ char *getBleShortName() {
 	int ad_name_idx = BLE_ADV_DATA_NAME_IDX;
   return ad[ad_name_idx].data;
 }

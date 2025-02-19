@@ -468,7 +468,7 @@ dk_set_led_on(2);
 
 	// TODO : Check if otDatasetIsCommissioned. Only start Thread IF already commissioned (avoid automatic commissioning after reset)
 	// to decommission without reset/reboot, set something in dataset invalid/clear name/key ?
-	if (otDatasetIsCommissioned){
+	if (otDatasetIsCommissioned( openthread_get_default_context() ) == true) {
 		LOG_INF("Thread already commissioned\n");
 	
 		if (loki_coap_init(
