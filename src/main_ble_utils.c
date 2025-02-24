@@ -270,6 +270,18 @@ static ssize_t write_dcc(struct bt_conn *conn,
 	return len;
 }
 
+static ssize_t read_credential(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+			  void *buf, uint16_t len, uint16_t offset)
+{
+	int err = 0;
+	char eui64[8*2+1];
+	err = get_Eui64(eui64);
+	if (err) {
+		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
+	}
+	return bt_gatt_attr_read(conn, attr, buf, len, offset, eui64, strlen(eui64));
+}
+
 static ssize_t write_credential(struct bt_conn *conn,
 			   const struct bt_gatt_attr *attr, const void *buf,
 			   uint16_t len, uint16_t offset, uint8_t flags)
@@ -327,11 +339,11 @@ BT_GATT_SERVICE_DEFINE(
                      BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
                      read_dcc, write_dcc, NULL),    
 
-	// Setting the credential initiates a joiner procedure, has never be to read
+	// Setting the credential initiates a joiner procedure, reading you'll obtain the EUI64
     BT_GATT_CHARACTERISTIC(&loki_credential_uuid.uuid,
-            	     BT_GATT_CHRC_WRITE,
-                     BT_GATT_PERM_WRITE,
-                     NULL, write_credential, NULL),    	
+            	     BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
+                     BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+                     read_credential, write_credential, NULL),    	
 
     BT_GATT_CHARACTERISTIC(&loki_ble_name_uuid.uuid,
                      BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,

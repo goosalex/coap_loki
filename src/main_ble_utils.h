@@ -13,6 +13,7 @@ static uint16_t dcc_address = 3;
  char *getBleLongName();
  int updateBleLongName(char *newName);
  int updateBleShortName(char *newName);
+ int get_Eui64(char *printable);
 
 extern void bt_notify_speed(void);
 extern void bt_register(void);

@@ -115,15 +115,7 @@ LOG_MODULE_REGISTER(loki_main, CONFIG_COAP_SERVER_LOG_LEVEL);
 
 void init_srp() ;
 
-// e.g. LOKI0815._ble._loki._coap._udp.local or BR212._ble._loki._coap._udp.local
-static otSrpClientService short_name_coap_service;
-#define SRP_SHORTNAME_SERVICE  "_ble._loki._coap._udp"
-// e.g. "Keihan Otsu Line Type 700 [Sound! Euphonium] Wrapping Train 2023"._name._loki._coap._udp.local
-static otSrpClientService long_name_coap_service;
-#define SRP_LONGNAME_SERVICE  "_name._loki._coap._udp"
-// e.g. 53._dcc._loki._coap._udp.local
-static otSrpClientService dcc_name_coap_service;
-#define SRP_DCC_SERVICE  "_dcc._loki._coap._udp"
+
 
 
 uint8_t speed_notify_enabled;
@@ -316,137 +308,10 @@ void modify_short_name(char *buf, uint16_t len)
 		ble_name[MAX_LEN_BLE_NAME] = '\0';
 	}
 	
-	updateBleLongName(ble_name);
+	updateBleShortName(ble_name);
 	init_srp();
 }
 
-void srp_callback(otError error, const otSrpClientHostInfo *aHostInfo,
-                  const otSrpClientService *aServices,
-                  const otSrpClientService *aRemovedServices, void *aContext) {
-  if (error != OT_ERROR_NONE) {
-    LOG_ERR("SRP update error: %s", otThreadErrorToString(error));
-    return;
-  }
-
-  LOG_INF("SRP update registered");
-  return;
-}
-
-
-
-void init_srp() {
-  otError error;
-  otInstance *p_instance = openthread_get_default_instance();
-  otSrpClientBuffersServiceEntry *entry;
-  char *host_name;
-
-  uint16_t size;
-
-	if (otSrpClientIsRunning(p_instance)) {
-		otSrpClientStop(p_instance);
-		LOG_INF("Stopping SRP client...");
-	} else {
-
-		LOG_INF("Initializing SRP client...");
-
-		otSrpClientSetCallback(p_instance, srp_callback, NULL);
-		host_name = otSrpClientBuffersGetHostNameString(p_instance, &size);
-		memcpy(host_name, ble_name, strlen(ble_name) + 1);
-		error = otSrpClientSetHostName(p_instance, host_name);
-		if (error != OT_ERROR_NONE) {
-			LOG_ERR("Cannot set SRP client host name: %s",
-					otThreadErrorToString(error));
-			return;
-		}
-
-		error = otSrpClientEnableAutoHostAddress(p_instance);
-		if (error != OT_ERROR_NONE) {
-			LOG_ERR("Cannot enable auto host address mode: %s",
-					otThreadErrorToString(error));
-			return;
-		}
-
-	}
-	if ( short_name_coap_service.mInstanceName != NULL
-		&& strcmp(short_name_coap_service.mInstanceName, ble_name) == 0 )
-	{
-		LOG_INF("Service %s already registered as %s", SRP_SHORTNAME_SERVICE, ble_name);
-	} else {
-		entry = register_service(p_instance, ble_name, SRP_SHORTNAME_SERVICE);
-		if (entry == NULL) {
-			LOG_ERR("Cannot allocate new service entry under %s", SRP_SHORTNAME_SERVICE);
-		} else {
-			LOG_INF("Service %s registered as %s", SRP_SHORTNAME_SERVICE, ble_name);
-			short_name_coap_service = entry->mService;
-		}
-	}
-  
-
-  otSrpClientEnableAutoStartMode(p_instance, NULL, NULL);
-
-}
-
-otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  char *instance_name, char *service_name){
-	otError error;
-	char *instance_name_buf;
-    char *service_name_buf;
-	otSrpClientBuffersServiceEntry *entry;
-	uint16_t size;
-
-	entry = otSrpClientBuffersAllocateService(p_instance);
-	if (entry == NULL) {
-		LOG_ERR("Cannot allocate new service entry");
-		return NULL;
-	}
-	instance_name_buf =
-		otSrpClientBuffersGetServiceEntryInstanceNameString(entry, &size);
-	memcpy(instance_name_buf, instance_name, strlen(instance_name) + 1);
-	service_name_buf =
-		otSrpClientBuffersGetServiceEntryServiceNameString(entry, &size);
-	memcpy(service_name_buf, service_name, strlen(service_name) + 1);
-	entry->mService.mPort = OT_DEFAULT_COAP_PORT;
-	error = otSrpClientAddService(p_instance, &entry->mService);
-	if (error != OT_ERROR_NONE) {
-		LOG_ERR("Cannot add service: %s", otThreadErrorToString(error));
-		return NULL;
-	}
-
-	return entry;
-
-}
-
-
-static void on_thread_state_changed(otChangedFlags flags, struct openthread_context *ot_context,
-				    void *user_data)
-{
-	static int ret;
-if (flags & OT_CHANGED_THREAD_ROLE) {
-		switch (otThreadGetDeviceRole(ot_context->instance)) {
-		case OT_DEVICE_ROLE_CHILD:
-			ret = dk_set_led_on(OT_CONNECTION_LED);
-			printk("OT new state  Childr\n");
-			break;			
-		case OT_DEVICE_ROLE_ROUTER:
-			ret = dk_set_led_on(OT_CONNECTION_LED);
-			printk("OT new state Router\n");
-			break;		
-		case OT_DEVICE_ROLE_LEADER:
-			dk_set_led_on(OT_CONNECTION_LED);
-			LOG_INF("Thread Role: Child/Router/Leader\n");
-			break;
-
-		case OT_DEVICE_ROLE_DISABLED:
-		case OT_DEVICE_ROLE_DETACHED:
-		default:
-			dk_set_led_on(OT_CONNECTION_LED);
-			LOG_INF("Thread Role: Disabled/Detached\n");
-			// deactivate_provisionig();
-			break;
-		}
-	}
-}
-static struct openthread_state_changed_cb ot_state_chaged_cb = { .state_changed_cb =
-									 on_thread_state_changed };
 
 
 
@@ -480,19 +345,16 @@ dk_set_led_on(2);
 			) != 0) {
 				LOG_ERR("CoAP init failed\n");			
 			} else {
-				if (0 != openthread_state_changed_cb_register(openthread_get_default_context(), &ot_state_chaged_cb)){
-					LOG_ERR("OpenThread State Change Callback Registration failed\n");
-				};
-				if ( 0!= openthread_start(openthread_get_default_context())){
-					LOG_ERR("OpenThread Start failed\n");
-				} else {
-					LOG_INF("OpenThread Started\n");
-				}
+				enable_thread();
+				LOG_INF("Thread enabled\n");
+				init_srp();
+				LOG_INF("SRP client enabled\n");
 			}
 
 	} else {
 		LOG_INF("Thread not commissioned\n");
 	}
+	LOG_INF("Starting BLE\n");
 	err = bt_enable(NULL);
 	if (err) {
 		LOG_ERR("Bluetooth init failed (err %d)\n", err);
@@ -504,7 +366,7 @@ dk_set_led_on(2);
 			LOG_WRN("Bluetooth settings load failed (err %d)\n", err);
 			return -3;
 		}
-	}
+	}	
 	if (bt_ready() != 0) {
 		LOG_ERR("Bluetooth setup failed\n");
 		return -4;
