@@ -257,17 +257,23 @@ static _ssize_t write_ble_name(struct bt_conn *conn,
 static ssize_t read_dcc(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			  void *buf, uint16_t len, uint16_t offset)
 {
-	return bt_gatt_attr_read(conn, attr, buf, len, offset, &accel_order,
-				 sizeof(accel_order));
+	return bt_gatt_attr_read(conn, attr, buf, len, offset, &dcc_address,
+				 sizeof(dcc_address));
 }
 
 static ssize_t write_dcc(struct bt_conn *conn,
 			   const struct bt_gatt_attr *attr, const void *buf,
 			   uint16_t len, uint16_t offset, uint8_t flags)
 {
-	speed_set_acceleration(((int16_t *)buf)[0]);
-	notify_speed_change();
+	u_int16_t value;
+	if (len < sizeof(uint16_t)) {
+		value = *(uint8_t *)buf;
+	} else {
+		value = sys_get_le16(buf);
+	}
+	dcc_address = value;
 	return len;
+	
 }
 
 static ssize_t read_credential(struct bt_conn *conn, const struct bt_gatt_attr *attr,
