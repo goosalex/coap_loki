@@ -25,10 +25,18 @@
 #include <zephyr/drivers/pwm.h>
 #include <stdio.h>
 
+// CoaP
 #include <zephyr/net/openthread.h>
 #include <openthread/thread.h>
 #include <openthread/srp_client.h>
 #include <openthread/srp_client_buffers.h>
+
+// UDP
+#include <openthread/message.h>
+#include <openthread/nat64.h>
+#include <openthread/udp.h>
+#include <openthread/config.h>
+
 
 #include "main_ble_utils.h"
 #include "main_ot_utils.h"
@@ -427,3 +435,36 @@ otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  char
 	return entry;
 
 }
+
+
+/* implement equivalent to Openthread CLI
+ot udp open
+ot bind :: 1234 
+*/
+
+
+
+
+int bindUdpHandler(otInstance *aInstance, otUdpSocket *aSocket, uint16_t port, otUdpReceive aHandler) {
+
+    otError error;
+	otSockAddr sockaddr; 
+	otNetifIdentifier netif = OT_NETIF_UNSPECIFIED;
+
+    if (!otUdpIsOpen(aInstance, aSocket))
+	{
+		error = otUdpOpen(aInstance, aSocket, aHandler, NULL);
+		if (error != OT_ERROR_NONE) {
+			LOG_ERR("Failed to open UDP socket: %s", otThreadErrorToString(error));
+			return -1;
+		}
+	};
+
+    SuccessOrExit(error = otIp6AddressFromString("::", &sockaddr.mAddress));
+    sockaddr.mPort = port;
+
+    error = otUdpBind(aInstance, aSocket, &sockaddr, netif);
+
+	return 0;
+}
+
