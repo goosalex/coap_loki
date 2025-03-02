@@ -27,7 +27,7 @@
 
 static struct bt_conn *default_conn;
 
-LOG_MODULE_DECLARE(loki_main, CONFIG_COAP_SERVER_LOG_LEVEL);
+LOG_MODULE_REGISTER(loki_ble, CONFIG_COAP_SERVER_LOG_LEVEL);
 
 /* Loki Service */
 static struct bt_uuid_128 loki_service_uuid =
@@ -390,6 +390,8 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 		bt_conn_unref(default_conn);
 		default_conn = NULL;
 	}
+	// The names might have changed, so update the advertising data
+	bt_submit_refresh_advertising_data_work();
 }
 
 static struct bt_conn_cb conn_callbacks = {
@@ -419,7 +421,7 @@ printk("Changed device name to: %s\n", newName);
     // Only need to modify the scan response data in this example as name is in scan response here.
     sd->data = newName;
     sd->data_len = strlen(newName);
-    err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+
     if(err) {
       printk("Error setting advertised names: %d\n", err);
 	  /* -11 means: not currently advertising
@@ -449,22 +451,7 @@ printk("Changed device name to: %s\n", newName);
 	int ad_name_idx = BLE_ADV_DATA_NAME_IDX;
 	ad[ad_name_idx].data = newName;
 	ad[ad_name_idx].data_len = strlen(newName);
-	err = bt_ready();
-	if (err) {
-		LOG_ERR("Error starting adverting again: %d\n", err);
-	}
-    // Update the advertising and scan response data needed to update the advertised device name
-	LOG_INF("Stoppping advertising\n");
-	err = bt_le_adv_stop();
-	if (err) {
-		LOG_ERR("Error stopping advertising: %d\n", err);
-	}
-	LOG_INF("Starting advertising again\n");
-	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
-	if (err) {
-		LOG_ERR("Error starting adverting again: %d\n", err);
-	}
-    err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+
     if(err) {
       LOG_ERR("Error saving advertised names: %d\n", err);
     } else {
@@ -472,12 +459,44 @@ printk("Changed device name to: %s\n", newName);
     }  
   return err;
 }
+void start_advertising(struct k_work *work) {
+  int err;
+  err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd)); // ,NULL, 0);
+  if (err) {
+	LOG_ERR("Advertising failed to start (err %d)\n", err);
+	
+  }
 
+  LOG_INF("Advertising successfully started\n");
+}
+K_WORK_DEFINE(start_advertising_work, start_advertising);
 
  char *getBleLongName() {
   char *name = bt_get_name();
   return name;
 }
+
+
+
+void refresh_advertising_data(struct k_work *work){
+  int err;
+  err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+  if(err) {
+	LOG_ERR("Error updating advertising data: %d\n", err);
+  } else {
+	LOG_INF("Updated advertising data\n");
+  }
+}
+
+K_WORK_DEFINE(refresh_advertising_data_work, refresh_advertising_data);
+
+void bt_submit_start_advertising_work() {
+  k_work_submit(&start_advertising_work);
+}
+void bt_submit_refresh_advertising_data_work() {
+  k_work_submit(&refresh_advertising_data_work);
+}
+
 
  char *getBleShortName() {
 	int ad_name_idx = BLE_ADV_DATA_NAME_IDX;

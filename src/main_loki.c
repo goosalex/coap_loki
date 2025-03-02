@@ -168,7 +168,8 @@ void on_udp_loconet_receive(void *aContext, otMessage *aMessage, const otMessage
 	u_int8_t ADR,ADR2;
 	u_int16_t ADR16;
 
-    LOG_INF("%d bytes from ", otMessageGetLength(aMessage) - otMessageGetOffset(aMessage), otIp6AddressToString(aMessageInfo->mPeerAddr, string, sizeof(string)));
+	otIp6AddressToString(&aMessageInfo->mPeerAddr, string, sizeof(string));
+    LOG_INF("%d bytes from %s", otMessageGetLength(aMessage) - otMessageGetOffset(aMessage), string);
 
     length      = otMessageRead(aMessage, otMessageGetOffset(aMessage), buf, sizeof(buf) - 1);
     buf[length] = '\0';

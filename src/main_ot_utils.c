@@ -310,12 +310,12 @@ void srp_callback(otError error, const otSrpClientHostInfo *aHostInfo,
   return;
 }
 
-otSrpClientAutoStartCallback aSrpClientAutoStartCallback(const otSockAddr *aServerSockAddr, void *aContext);
+void aSrpClientAutoStartCallback(const otSockAddr *aServerSockAddr, void *aContext);
 
 struct k_mutex srp_client_mutex;
 
 void init_srp() {
-	if (k_mutex_lock(&srp_client_mutex, K_MSEC(100)) == 0) {
+	//if (k_mutex_lock(&srp_client_mutex, K_MSEC(100)) == 0) {
     /* mutex successfully locked */
 
 
@@ -368,34 +368,34 @@ void init_srp() {
 		}
 
 		
-		if ( short_name_coap_service.mInstanceName != NULL
-			&& strcmp(short_name_coap_service.mInstanceName, ble_name) == 0 )
+		if ( (&short_name_coap_service != NULL) && (&short_name_coap_service.mService)
+			&& strcmp(short_name_coap_service.mService.mInstanceName, ble_name) == 0 )
 		{
 			LOG_INF("Service %s already registered as %s", SRP_SHORTNAME_SERVICE, ble_name);
 		} else {
-			entry = register_service(p_instance, ble_name, SRP_SHORTNAME_SERVICE);
+			entry = register_coap_service(p_instance, ble_name, SRP_SHORTNAME_SERVICE);
 			if (entry == NULL) {
 				LOG_ERR("Cannot allocate new service entry under %s", SRP_SHORTNAME_SERVICE);
 			} else {
 				LOG_INF("Service %s registered as %s", SRP_SHORTNAME_SERVICE, ble_name);
-				//short_name_coap_service = entry->mService;
+				short_name_coap_service = *entry;
 			}
 		}
 		LOG_INF("Attempt to enable auto start mode");
-		otSrpClientEnableAutoStartMode(p_instance, aSrpClientAutoStartCallback, NULL);
+		otSrpClientEnableAutoStartMode(p_instance, &aSrpClientAutoStartCallback, NULL);
 		LOG_INF("SRP client initialized, waiting for callback");
 		srp_is_enabled = true; // initial setup done
-		k_mutex_unlock(&srp_client_mutex);
+	//	k_mutex_unlock(&srp_client_mutex);
 
-	} else {
+	//} else {
 		LOG_WRN("Cannot lock Init SRP client routines\n");
 
-	}
+	//}
 
 	return;
 }
 
-otSrpClientAutoStartCallback aSrpClientAutoStartCallback(const otSockAddr *aServerSockAddr, void *aContext) {
+void aSrpClientAutoStartCallback(const otSockAddr *aServerSockAddr, void *aContext) {
 	LOG_INF("SRP client auto start callback");
 	if (aServerSockAddr != NULL) {
 		char addr[OT_IP6_SOCK_ADDR_STRING_SIZE];
@@ -406,8 +406,52 @@ otSrpClientAutoStartCallback aSrpClientAutoStartCallback(const otSockAddr *aServ
 	}
 }
 
+otSrpClientBuffersServiceEntry *register_coap_service( otInstance *p_instance ,  char *instance_name, char *service_name) {
+	return register_service(p_instance, instance_name, service_name, OT_DEFAULT_COAP_PORT);
+}
 
-otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  char *instance_name, char *service_name){
+int re_register_coap_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry *entry, char *instance_name, char *service_name) {
+	return re_register_service(p_instance, entry, instance_name, service_name, OT_DEFAULT_COAP_PORT);
+}
+
+int re_register_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry *entry, char *instance_name, char *service_name, int port) {
+	otError error;
+	char *instance_name_buf;
+	char *service_name_buf;
+	uint16_t size;
+
+	if (entry != NULL) {
+		error = otSrpClientRemoveService(p_instance, &entry->mService);
+		if (error != OT_ERROR_NONE) {
+			LOG_ERR("Cannot remove service: %s", otThreadErrorToString(error));
+			return -1;
+		}
+		otSrpClientBuffersFreeService(p_instance, entry);
+		entry = NULL;
+	}
+	entry = otSrpClientBuffersAllocateService(p_instance);
+	instance_name_buf =
+		otSrpClientBuffersGetServiceEntryInstanceNameString(entry, &size);
+	memcpy(instance_name_buf, instance_name, strlen(instance_name) + 1);
+
+	service_name_buf =
+		otSrpClientBuffersGetServiceEntryServiceNameString(entry, &size);		
+	memcpy(service_name_buf, service_name, strlen(service_name) + 1);
+
+	entry->mService.mPort = port;
+
+	error = otSrpClientAddService(p_instance, &entry->mService);
+	if (error != OT_ERROR_NONE) {
+		LOG_ERR("Cannot re-add service: %s", otThreadErrorToString(error));
+		return -1;
+	}
+
+	return 0;
+
+}
+
+
+otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  char *instance_name, char *service_name, int port) {
 	otError error;
 	char *instance_name_buf;
     char *service_name_buf;
@@ -437,13 +481,10 @@ otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  char
 }
 
 
-/* implement equivalent to Openthread CLI
+/* implements equivalent to Openthread CLI
 ot udp open
 ot bind :: 1234 
 */
-
-
-
 
 int bindUdpHandler(otInstance *aInstance, otUdpSocket *aSocket, uint16_t port, otUdpReceive aHandler) {
 
@@ -460,7 +501,11 @@ int bindUdpHandler(otInstance *aInstance, otUdpSocket *aSocket, uint16_t port, o
 		}
 	};
 
-    SuccessOrExit(error = otIp6AddressFromString("::", &sockaddr.mAddress));
+    error = otIp6AddressFromString("::", &sockaddr.mAddress);
+	if (error != OT_ERROR_NONE) {
+		LOG_ERR("Failed to parse IPv6 address: %s", otThreadErrorToString(error));
+		return -1;
+	}
     sockaddr.mPort = port;
 
     error = otUdpBind(aInstance, aSocket, &sockaddr, netif);

@@ -185,7 +185,7 @@ void init_default_settings()
 
 
 
-otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  char *instance_name, char *service_name);
+
 
 
 void settings_handle_commit(void){
@@ -222,7 +222,7 @@ int settings_handle_set(const char *name, size_t len_rd, settings_read_cb read_c
 	} else {
 		return -ENOENT;
 	}
-
+	LOG_INF("Setting<LOKI> %s loaded\n", name);
 	return 0;
 }
 
@@ -242,7 +242,7 @@ struct settings_handler loki_settings_handler = {
 	.h_export = settings_handle_export
 };
 
-void load_settings()
+void load_settings_from_nvm()
 {
 	int rc;
 	// Load the settings from the flash
@@ -275,7 +275,7 @@ void modify_full_name(char *buf, uint16_t len)
 		return;
 	} else {
 		LOG_INF("Changing full name to %s\n", (buf));
-		de_register_service(long_name_coap_service);
+		re_register_coap_service(openthread_get_default_instance(), &long_name_coap_service, buf, SRP_LONGNAME_SERVICE);
 	}
 
 	if (len < MAX_LEN_FULL_NAME) {
@@ -286,9 +286,9 @@ void modify_full_name(char *buf, uint16_t len)
 		full_name[MAX_LEN_FULL_NAME] = '\0';
 	}
 
-	init_srp();
+	updateBleLongName(full_name);
 
-	// TODO: Implement, reset BLE Adv Name and restart BLE and CoAP
+	
 }
 
 void modify_short_name(char *buf, uint16_t len)
@@ -297,7 +297,7 @@ void modify_short_name(char *buf, uint16_t len)
 		return;
 	} else {
 		LOG_INF("Changing short name to %s\n", (buf));
-		de_register_service(short_name_coap_service);
+		re_register_coap_service(openthread_get_default_instance(), &short_name_coap_service, buf, SRP_SHORTNAME_SERVICE);
 	}
 
 	if (len < MAX_LEN_BLE_NAME) {
@@ -309,7 +309,6 @@ void modify_short_name(char *buf, uint16_t len)
 	}
 	
 	updateBleShortName(ble_name);
-	init_srp();
 }
 
 
@@ -329,13 +328,24 @@ dk_set_led_on(OT_CONNECTION_LED);
 dk_set_led_on(0);
 dk_set_led_on(1);
 dk_set_led_on(2);
-	load_settings();
 
+	if (IS_ENABLED(CONFIG_SETTINGS)) {
+		load_settings_from_nvm();
+		err = settings_load();
+			if (err) {
+			LOG_WRN("Bluetooth and other settings load failed (err %d)\n", err);
+			return -3;
+		}
+	}	
+	
 	// TODO : Check if otDatasetIsCommissioned. Only start Thread IF already commissioned (avoid automatic commissioning after reset)
 	// to decommission without reset/reboot, set something in dataset invalid/clear name/key ?
-	if (otDatasetIsCommissioned( openthread_get_default_context() ) == true) {
+	if (otDatasetIsCommissioned( openthread_get_default_instance() ) == true) {
 		LOG_INF("Thread already commissioned\n");
-	
+		enable_thread();
+		LOG_INF("Thread enabled\n");
+		init_srp();				
+		LOG_INF("SRP client enabled\n");
 		if (loki_coap_init(
 			change_speed_directly,
 			speed_set_acceleration,
@@ -345,32 +355,53 @@ dk_set_led_on(2);
 			) != 0) {
 				LOG_ERR("CoAP init failed\n");			
 			} else {
-				enable_thread();
-				LOG_INF("Thread enabled\n");
-				init_srp();
-				LOG_INF("SRP client enabled\n");
+				LOG_INF("CoAP initialized\n");
+				if (short_name_coap_service.mService.mInstanceName != NULL) {
+					LOG_INF("Service %s already registered as %s, freeing first", SRP_SHORTNAME_SERVICE, ble_name);
+					otSrpClientBuffersFreeService(openthread_get_default_instance(), &short_name_coap_service);
+				}
+				if (long_name_coap_service.mService.mInstanceName != NULL) {
+					LOG_INF("Service %s already registered as %s, freeing first", SRP_LONGNAME_SERVICE, full_name);
+					otSrpClientBuffersFreeService(openthread_get_default_instance(), &long_name_coap_service);
+				}
+				register_coap_service(openthread_get_default_instance(), full_name, SRP_LONGNAME_SERVICE);
+				register_coap_service(openthread_get_default_instance(), ble_name, SRP_SHORTNAME_SERVICE);
 			}
+		if (dcc_address != 0) {
+			LOG_INF("DCC Address set to %d\n", dcc_address);
+			if (&dcc_name_coap_service != NULL) {
+				LOG_INF("Service %s already registered as %d, freeing first", SRP_DCC_SERVICE, dcc_address);
+				otSrpClientBuffersFreeService(openthread_get_default_instance(), &dcc_name_coap_service);
+			}
+			char *dcc_string = malloc(15);
+			sprintf(dcc_string, "%d", dcc_address);
+			dcc_name_coap_service = *register_service(openthread_get_default_instance(),dcc_string , SRP_LCN_SERVICE, SRP_LCN_PORT);
+		}
 
 	} else {
 		LOG_INF("Thread not commissioned\n");
 	}
 	LOG_INF("Starting BLE\n");
+	settings_load_subtree("bt");
 	err = bt_enable(NULL);
 	if (err) {
-		LOG_ERR("Bluetooth init failed (err %d)\n", err);
+		LOG_ERR("Bluetooth enable failed (err %d)\n", err);
 		return -2;
 	}
-	if (IS_ENABLED(CONFIG_SETTINGS)) {
-		err = settings_load();
-			if (err) {
-			LOG_WRN("Bluetooth settings load failed (err %d)\n", err);
-			return -3;
-		}
-	}	
-	if (bt_ready() != 0) {
-		LOG_ERR("Bluetooth setup failed\n");
+	// settings_load_subtree("bt");
+	updateBleShortName(ble_name);
+	updateBleLongName(full_name);
+	/*err = bt_ready();
+	#if (err) {
+		LOG_ERR("Bluetooth setup failed (err %d)\n", err);
 		return -4;
-	}
+	}*/
+	/*   From DevZone:
+		 Calling `bt_le_adv_update_data()` consumed the remaining stack of the calling thread. Putting it in a workqueue gave it a separate stack, and that solved the issue. Increasing the stack size of the calling thread also solved it. 
+	*/
+	k_work_submit(&bt_submit_start_advertising_work);
+
+
 	bt_register();	
 	return 0;
 

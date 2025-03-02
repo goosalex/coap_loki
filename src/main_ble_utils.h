@@ -15,6 +15,10 @@ static uint16_t dcc_address = 3;
  int updateBleShortName(char *newName);
  int get_Eui64(char *printable);
 
+void bt_submit_start_advertising_work();
+void bt_submit_refresh_advertising_data_work();
+
+
 extern void bt_notify_speed(void);
 extern void bt_register(void);
 extern int bt_ready(void);
