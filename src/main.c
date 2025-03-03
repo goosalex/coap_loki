@@ -18,6 +18,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/byteorder.h>
+#include <zephyr/logging/log.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/hci.h>
@@ -26,12 +27,21 @@
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/services/bas.h>
 #include <zephyr/settings/settings.h>
+#include <hw_id.h>
+#include <openthread/coap.h>
 
 #include <zephyr/drivers/pwm.h>
 #include <stdio.h>
 
+#include <zephyr/net/openthread.h>
+#include <openthread/thread.h>
+#include <openthread/srp_client.h>
+#include <openthread/srp_client_buffers.h>
+
+#include <dk_buttons_and_leds.h>
 #include "main_ble_utils.h"
 #include "loki_coap_utils.h"
+#include "main_ot_utils.h"
 #include "main_loki.h"
 
 #if MOTOR_DRV8871
@@ -42,6 +52,7 @@
 #include "motors/motorTB67driver.c"
 #endif
 
+#define OT_CONNECTION_LED 3
 
 
 /*
@@ -99,7 +110,10 @@ static const struct gpio_dt_spec led2_switch =
 
 
 
+LOG_MODULE_REGISTER(loki_main, CONFIG_COAP_SERVER_LOG_LEVEL);
 
+
+void init_srp() ;
 
 
 
@@ -113,7 +127,7 @@ void notify_speed_change()
 {
 		// Notify if Notifications are enabled
 	if (speed_notify_enabled) {
-		printk("Sending Speed Notifications to GATT Client\n");
+		LOG_DBG("Sending Speed Notifications to GATT Client\n");
 		/* original demo code:
 				bt_gatt_notify(NULL, &simple_service.attrs[1], &button_1_value,
 			       sizeof(button_1_value));
@@ -132,41 +146,264 @@ void stop_motor()
 	change_speed_directly(0);
 }
 
+
+
+void init_default_settings()
+{
+	speed_value = 0;
+	accel_order = 0;
+	direction_pattern = 0;
+	speed_notify_enabled = 0;
+	change_pwm_base(1000);
+	int err;
+	
+	char buf[HW_ID_LEN] = "unsupported";
+	err = hw_id_get(buf, ARRAY_SIZE(buf));
+		if (err) {
+			LOG_ERR("hw_id_get failed (err %d)\n", err);		
+	}
+
+
+
+	// Set the default name
+    // Ensure the buffer is large enough to hold the new name
+    char ble_name[MAX_LEN_BLE_NAME + 1]; // "LOKI" + 4 characters from buf + null terminator
+
+    // Copy "LOKI" to ble_name
+    strcpy(ble_name, "LOKI");
+
+    // Concatenate the first 4 characters from buf to ble_name
+    strncat(ble_name, buf, MAX_LEN_BLE_NAME - strlen(ble_name));
+
+    // Ensure null termination
+    ble_name[8] = '\0';
+
+	strcpy(full_name,ble_name);
+
+	dcc_address = 0;
+}
+
+
+
+
+
+
+void settings_handle_commit(void){
+	LOG_INF("Settings<LOKI> loaded\n");
+}
+
+int settings_handle_set(const char *name, size_t len_rd, settings_read_cb read_cb,
+			void *cb_arg)
+{
+	if (!name) {
+		return -EINVAL;
+	}
+
+	if (!strcmp(name, "loki/shortname")) {
+		ssize_t len = read_cb(cb_arg, &ble_name, sizeof(ble_name));
+		if (len < 0) {
+			LOG_ERR("Failed to read shortname from storage (err %zd)\n", len);
+			return len;
+		}
+		ble_name[len] = '\0';
+	} else if (!strcmp(name, "loki/longname")) {
+		ssize_t len = read_cb(cb_arg, &full_name, sizeof(full_name));
+		if (len < 0) {
+			LOG_ERR("Failed to read longname from storage (err %zd)\n", len);
+			return len;
+		}
+		full_name[len] = '\0';
+	} else if (!strcmp(name, "loki/dcc")) {
+		ssize_t len = read_cb(cb_arg, &dcc_address, sizeof(dcc_address));
+		if (len < 0) {
+			LOG_ERR("Failed to read dcc from storage (err %zd)\n", len);
+			return len;
+		}
+	} else {
+		return -ENOENT;
+	}
+	LOG_INF("Setting<LOKI> %s loaded\n", name);
+	return 0;
+}
+
+int settings_handle_export(int (*cb)(const char *name,
+			       const void *value, size_t val_len))
+{	
+	(void)cb("loki/shortname", &ble_name, sizeof(ble_name));
+	(void)cb("loki/longname", &full_name, sizeof(full_name));
+	(void)cb("loki/dcc", &dcc_address, sizeof(dcc_address));
+	return 0;
+}
+
+struct settings_handler loki_settings_handler = {
+	.name = "loki",
+	.h_set = settings_handle_set,
+//	.h_commit = settings_handle_commit,
+	.h_export = settings_handle_export
+};
+
+void load_settings_from_nvm()
+{
+	int rc;
+	// Load the settings from the flash
+	rc = settings_subsys_init();
+	if (rc) {
+		LOG_ERR("settings subsys initialization: fail (err %d)\n", rc);
+		return;
+	}
+
+	LOG_INF("settings subsys initialization: OK.\n");
+
+	rc = settings_register(&loki_settings_handler);
+}
+
+
+void *de_register_service( otSrpClientService service){
+	otError error;
+	otInstance *p_instance = openthread_get_default_instance();
+	error = otSrpClientRemoveService(p_instance, &service);
+	if (error != OT_ERROR_NONE) {
+		LOG_ERR("Cannot remove service: %s", otThreadErrorToString(error));
+		return NULL;
+	}
+	return NULL;
+}
+
+void modify_full_name(char *buf, uint16_t len)
+{
+	if (strncmp(buf, full_name, len) == 0) {
+		return;
+	} else {
+		LOG_INF("Changing full name to %s\n", (buf));
+		re_register_coap_service(openthread_get_default_instance(), &long_name_coap_service, buf, SRP_LONGNAME_SERVICE);
+	}
+
+	if (len < MAX_LEN_FULL_NAME) {
+		strncpy(full_name, buf, len);
+		full_name[len] = '\0';
+	} else {
+		strncpy(full_name, buf, MAX_LEN_FULL_NAME);
+		full_name[MAX_LEN_FULL_NAME] = '\0';
+	}
+
+	updateBleLongName(full_name);
+
+	
+}
+
+void modify_short_name(char *buf, uint16_t len)
+{
+	if (strncmp(buf, ble_name, len) == 0) {
+		return;
+	} else {
+		LOG_INF("Changing short name to %s\n", (buf));
+		re_register_coap_service(openthread_get_default_instance(), &short_name_coap_service, buf, SRP_SHORTNAME_SERVICE);
+	}
+
+	if (len < MAX_LEN_BLE_NAME) {
+		strncpy(ble_name, buf, len);
+		ble_name[len] = '\0';
+	} else {
+		strncpy(ble_name, buf, MAX_LEN_BLE_NAME);
+		ble_name[MAX_LEN_BLE_NAME] = '\0';
+	}
+	
+	updateBleShortName(ble_name);
+}
+
+
+
+
+
 int main(void)
 {
 	int err;
-
+	printk("Startup\r");
+	LOG_INF("%s","Startup Information:\n");
 	if (motor_init() != 0 ) {
-		printk("Motor init failed\n");
+		LOG_ERR("Motor init failed\n");
 		return -1;
 	}
+dk_set_led_on(OT_CONNECTION_LED);
+dk_set_led_on(0);
+dk_set_led_on(1);
+dk_set_led_on(2);
 
-	if (loki_coap_init(
-		change_speed_directly,
-		speed_set_acceleration,
-		change_direction,
-		stop_motor) != 0) {
-			printk("CoAP init failed\n");			
-		}
-
-
-	err = bt_enable(NULL);
-	if (err) {
-		printk("Bluetooth init failed (err %d)\n", err);
-		return -2;
-	}
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
+		load_settings_from_nvm();
 		err = settings_load();
 			if (err) {
-			printk("Bluetooth settings load failed (err %d)\n", err);
+			LOG_WRN("Bluetooth and other settings load failed (err %d)\n", err);
 			return -3;
 		}
+	}	
+	
+	// TODO : Check if otDatasetIsCommissioned. Only start Thread IF already commissioned (avoid automatic commissioning after reset)
+	// to decommission without reset/reboot, set something in dataset invalid/clear name/key ?
+	if (otDatasetIsCommissioned( openthread_get_default_instance() ) == true) {
+		LOG_INF("Thread already commissioned\n");
+		enable_thread();
+		LOG_INF("Thread enabled\n");
+		init_srp();				
+		LOG_INF("SRP client enabled\n");
+		if (loki_coap_init(
+			change_speed_directly,
+			speed_set_acceleration,
+			change_direction,
+			stop_motor,
+			modify_full_name
+			) != 0) {
+				LOG_ERR("CoAP init failed\n");			
+			} else {
+				LOG_INF("CoAP initialized\n");
+				if (short_name_coap_service.mService.mInstanceName != NULL) {
+					LOG_INF("Service %s already registered as %s, freeing first", SRP_SHORTNAME_SERVICE, ble_name);
+					otSrpClientBuffersFreeService(openthread_get_default_instance(), &short_name_coap_service);
+				}
+				if (long_name_coap_service.mService.mInstanceName != NULL) {
+					LOG_INF("Service %s already registered as %s, freeing first", SRP_LONGNAME_SERVICE, full_name);
+					otSrpClientBuffersFreeService(openthread_get_default_instance(), &long_name_coap_service);
+				}
+				register_coap_service(openthread_get_default_instance(), full_name, SRP_LONGNAME_SERVICE);
+				register_coap_service(openthread_get_default_instance(), ble_name, SRP_SHORTNAME_SERVICE);
+			}
+		if (dcc_address != 0) {
+			LOG_INF("DCC Address set to %d\n", dcc_address);
+			if (&dcc_name_coap_service != NULL) {
+				LOG_INF("Service %s already registered as %d, freeing first", SRP_DCC_SERVICE, dcc_address);
+				otSrpClientBuffersFreeService(openthread_get_default_instance(), &dcc_name_coap_service);
+			}
+			char *dcc_string = malloc(15);
+			sprintf(dcc_string, "%d", dcc_address);
+			dcc_name_coap_service = *register_service(openthread_get_default_instance(),dcc_string , SRP_LCN_SERVICE, SRP_LCN_PORT);
+		}
+
+	} else {
+		LOG_INF("Thread not commissioned\n");
 	}
-	if (bt_ready() != 0) {
-		printk("Bluetooth setup failed\n");
+	LOG_INF("Starting BLE\n");
+	//settings_load_subtree("bt");
+	err = bt_enable(NULL);
+	if (err) {
+		LOG_ERR("Bluetooth enable failed (err %d)\n", err);
+		return -2;
+	}
+	settings_load_subtree("bt");
+	updateBleShortName(ble_name);
+	updateBleLongName(full_name);
+	/*err = bt_ready();
+	#if (err) {
+		LOG_ERR("Bluetooth setup failed (err %d)\n", err);
 		return -4;
-	}
+	}*/
+	/*   From DevZone:
+		 Calling `bt_le_adv_update_data()` consumed the remaining stack of the calling thread. Putting it in a workqueue gave it a separate stack, and that solved the issue. Increasing the stack size of the calling thread also solved it. 
+	*/
 	bt_register();	
+	bt_submit_start_advertising_work();
+
+
+
 	return 0;
 
 }

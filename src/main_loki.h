@@ -14,6 +14,8 @@ extern int8_t accel_order;
 extern uint8_t direction_pattern;
 extern uint8_t speed_notify_enabled;
 
+#define MAX_NAME_LENGTH 255
+
 
 
  void change_pwm_base(uint16_t new_base);

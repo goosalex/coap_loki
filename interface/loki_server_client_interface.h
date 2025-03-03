@@ -20,5 +20,6 @@ enum direction_command {
 #define ACC_URI_PATH "acceleration"
 #define DIRECTION_URI_PATH "direction"
 #define STOP_URI_PATH "stop"
+#define NAME_URI_PATH "name"
 
 #endif

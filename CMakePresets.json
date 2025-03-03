@@ -1,0 +1,25 @@
+{
+    "version": 2,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 20
+    },
+    "configurePresets": [
+        {
+            "name": "build_dongle",
+            "displayName": "Build for nRF52840 Dongle NRF52840",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build_dongle",
+            "cacheVariables": {
+                "NCS_TOOLCHAIN_VERSION": "NONE",
+                "BOARD": "nrf52840dongle_nrf52840",
+                "BOARD_ROOT": "${sourceParentDir}/coap_client;${sourceParentDir}/coap_server;${sourceDir}/;.",
+                "CONFIG_DEBUG_OPTIMIZATIONS": "y",
+                "CONFIG_DEBUG_THREAD_INFO": "y",
+                "CONF_FILE": "${sourceDir}/prj.conf",
+                "EXTRA_CONF_FILE": "${sourceDir}/overlay-debug.conf;${sourceDir}/overlay-logging.conf;${sourceDir}/loki_app.conf",
+                "DTC_OVERLAY_FILE": "${sourceDir}/boards/nrf52840dongle_nrf52840.overlay"
+            }
+        }
+    ]
+}
