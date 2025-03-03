@@ -340,7 +340,7 @@ dk_set_led_on(2);
 	
 	// TODO : Check if otDatasetIsCommissioned. Only start Thread IF already commissioned (avoid automatic commissioning after reset)
 	// to decommission without reset/reboot, set something in dataset invalid/clear name/key ?
-	if (otDatasetIsCommissioned( openthread_get_default_instance() ) == true) {
+	if (1==0 && otDatasetIsCommissioned( openthread_get_default_instance() ) == true) {
 		LOG_INF("Thread already commissioned\n");
 		enable_thread();
 		LOG_INF("Thread enabled\n");
@@ -382,13 +382,13 @@ dk_set_led_on(2);
 		LOG_INF("Thread not commissioned\n");
 	}
 	LOG_INF("Starting BLE\n");
-	settings_load_subtree("bt");
+	//settings_load_subtree("bt");
 	err = bt_enable(NULL);
 	if (err) {
 		LOG_ERR("Bluetooth enable failed (err %d)\n", err);
 		return -2;
 	}
-	// settings_load_subtree("bt");
+	settings_load_subtree("bt");
 	updateBleShortName(ble_name);
 	updateBleLongName(full_name);
 	/*err = bt_ready();
@@ -399,10 +399,11 @@ dk_set_led_on(2);
 	/*   From DevZone:
 		 Calling `bt_le_adv_update_data()` consumed the remaining stack of the calling thread. Putting it in a workqueue gave it a separate stack, and that solved the issue. Increasing the stack size of the calling thread also solved it. 
 	*/
-	k_work_submit(&bt_submit_start_advertising_work);
-
-
 	bt_register();	
+	bt_submit_start_advertising_work();
+
+
+
 	return 0;
 
 }

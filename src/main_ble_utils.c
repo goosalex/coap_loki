@@ -465,9 +465,11 @@ void start_advertising(struct k_work *work) {
   if (err) {
 	LOG_ERR("Advertising failed to start (err %d)\n", err);
 	
+  } else {
+	LOG_INF("Advertising successfully started\n");	
   }
 
-  LOG_INF("Advertising successfully started\n");
+  
 }
 K_WORK_DEFINE(start_advertising_work, start_advertising);
 
@@ -527,4 +529,5 @@ int bt_ready(void)
 void bt_register(void)
 {
     bt_conn_cb_register(&conn_callbacks);
+	LOG_INF("Bluetooth callbacks registered\n");
 }
