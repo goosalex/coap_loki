@@ -376,6 +376,9 @@ dk_set_led_on(2);
 			char *dcc_string = malloc(15);
 			sprintf(dcc_string, "%d", dcc_address);
 			dcc_name_coap_service = *register_service(openthread_get_default_instance(),dcc_string , SRP_LCN_SERVICE, SRP_LCN_PORT);
+
+			bindUdpHandler(openthread_get_default_instance(),&loconet_udp_socket, SRP_LCN_PORT, on_udp_loconet_receive);
+			LOG_INF("UDP Port %d is listening for LNet Messages addressing #%s",SRP_LCN_PORT,dcc_string);
 		}
 
 	} else {

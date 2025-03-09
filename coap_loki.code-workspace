@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"name": "peripheral_gatt_write",
+			"path": "../samples/peripheral_gatt_write"
+		}
+	],
+	"settings": {}
+}
