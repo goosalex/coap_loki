@@ -4,6 +4,6 @@
 
 # build
 /build*/
-.vscode/settings.json
+.vscode/
 log.log
 coap_loki.code-workspace
