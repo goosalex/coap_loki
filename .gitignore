@@ -4,5 +4,5 @@
 
 # build
 /build*/
-.vscode/settings.json
+.vscode/
 log.log

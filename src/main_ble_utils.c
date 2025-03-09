@@ -237,16 +237,12 @@ static _ssize_t write_ble_name(struct bt_conn *conn,
 			   const struct bt_gatt_attr *attr, const void *buf,
 			   uint16_t len, uint16_t offset, uint8_t flags)
 {
-	int err;
-	char new_name[MAX_LEN_BLE_NAME];
-	if (len > sizeof(new_name)) {
+	// The name is limited to 8 characters, no null terminator
+	if (len > MAX_LEN_BLE_NAME ) {
 		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
 	}
 
-	memcpy(new_name, buf, len);
-	new_name[len] = '\0';
-
-	err = updateBleShortName(new_name);
+	int err = modify_short_name(buf, len);
 	if (err) {
 		return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
 	}
@@ -449,16 +445,13 @@ printk("Changed device name to: %s\n", newName);
   LOG_INF("Set new advertised name: %s\n",newName);
 
 	int ad_name_idx = BLE_ADV_DATA_NAME_IDX;
-	ad[ad_name_idx].data = newName;
+	ad[ad_name_idx].data = (const uint8_t *)newName;
 	ad[ad_name_idx].data_len = strlen(newName);
+	
 
-    if(err) {
-      LOG_ERR("Error saving advertised names: %d\n", err);
-    } else {
-      LOG_INF("Changed advertised long name to: %s\n", newName);
-    }  
   return err;
 }
+
 void start_advertising(struct k_work *work) {
   int err;
   err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd)); // ,NULL, 0);
