@@ -166,8 +166,6 @@ void init_default_settings()
 
 
 	// Set the default name
-    // Ensure the buffer is large enough to hold the new name
-    char ble_name[MAX_LEN_BLE_NAME + 1]; // "LOKI" + 4 characters from buf + null terminator
 
     // Copy "LOKI" to ble_name
     strcpy(ble_name, "LOKI");
@@ -429,6 +427,9 @@ dk_set_led_on(2);
 			char *dcc_string = malloc(15);
 			sprintf(dcc_string, "%d", dcc_address);
 			dcc_name_coap_service = *register_service(openthread_get_default_instance(),dcc_string , SRP_LCN_SERVICE, SRP_LCN_PORT);
+
+			bindUdpHandler(openthread_get_default_instance(),&loconet_udp_socket, SRP_LCN_PORT, on_udp_loconet_receive);
+			LOG_INF("UDP Port %d is listening for LNet Messages addressing #%s",SRP_LCN_PORT,dcc_string);
 		}
 
 	} else {

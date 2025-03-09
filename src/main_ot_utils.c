@@ -45,7 +45,10 @@
 LOG_MODULE_REGISTER(loki_ot, CONFIG_COAP_SERVER_LOG_LEVEL);
 
 int enable_thread();
+// global variables
+otUdpSocket loconet_udp_socket;
 
+// local variables
 bool ot_is_enabled = false;
 bool ot_is_commissioned = false;
 bool srp_is_enabled = false;
@@ -511,5 +514,26 @@ int bindUdpHandler(otInstance *aInstance, otUdpSocket *aSocket, uint16_t port, o
     error = otUdpBind(aInstance, aSocket, &sockaddr, netif);
 
 	return 0;
+}
+
+const bool mLinkSecurityEnabled = false;
+
+int sendOtUdpReply(otInstance *aInstance, otUdpSocket *sock, otMessageInfo *origMsgInfo, otMessage *msg){
+	int ret;
+	otIp6Address ip6adr;
+	u_int16_t port;
+	char *buf[OT_IP6_ADDRESS_STRING_SIZE];
+	ip6adr = origMsgInfo->mPeerAddr;
+	otIp6AddressToString(&ip6adr,buf,OT_IP6_ADDRESS_STRING_SIZE);
+	LOG_INF("Sending back reply to %s:%d",buf,port);
+	
+	otMessageSettings messageSettings = {mLinkSecurityEnabled, OT_MESSAGE_PRIORITY_NORMAL};
+	ret = otUdpSend(aInstance, sock, msg, origMsgInfo );
+	if (ret != OT_ERROR_NONE) {
+		LOG_ERR("Failed to send UDP reply: %s", otThreadErrorToString(ret));
+		return -1;
+	}
+	return 0;
+
 }
 

@@ -5,9 +5,10 @@
 #define MAX_LEN_FULL_NAME 63
 #define MAX_LEN_BLE_NAME 8
 #define DEFAULT_NAME_PREFIX "LOKI";
-static char ble_name[MAX_LEN_BLE_NAME+1] = "LOKI";
-static char full_name[MAX_LEN_FULL_NAME+1] = "LOKI";
-static uint16_t dcc_address = 3;
+
+ extern char ble_name[MAX_LEN_BLE_NAME+1]; // = "LOKI" in   main_ble_utils.c
+ extern char full_name[MAX_LEN_FULL_NAME+1]; // = "LOKI" in  main_ble_utils.c
+ extern uint16_t dcc_address; // main_loki.h
 
  char *getBleShortName();
  char *getBleLongName();
