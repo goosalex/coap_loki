@@ -166,8 +166,6 @@ void init_default_settings()
 
 
 	// Set the default name
-    // Ensure the buffer is large enough to hold the new name
-    char ble_name[MAX_LEN_BLE_NAME + 1]; // "LOKI" + 4 characters from buf + null terminator
 
     // Copy "LOKI" to ble_name
     strcpy(ble_name, "LOKI");

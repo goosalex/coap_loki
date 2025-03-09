@@ -16,6 +16,7 @@ extern uint16_t pwm_period;
 extern uint16_t pwm_pulse;
 extern uint8_t speed_value;
 extern int8_t accel_order;
+extern uint16_t dcc_address;
 extern uint8_t direction_pattern;
 extern uint8_t speed_notify_enabled;
 

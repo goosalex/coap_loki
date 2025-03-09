@@ -45,7 +45,10 @@
 LOG_MODULE_REGISTER(loki_ot, CONFIG_COAP_SERVER_LOG_LEVEL);
 
 int enable_thread();
+// global variables
+otUdpSocket loconet_udp_socket;
 
+// local variables
 bool ot_is_enabled = false;
 bool ot_is_commissioned = false;
 bool srp_is_enabled = false;

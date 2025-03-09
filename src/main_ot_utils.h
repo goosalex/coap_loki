@@ -4,10 +4,9 @@
 #include <openthread/instance.h>
 #include <openthread/srp_client.h>
 #include <openthread/srp_client_buffers.h>
+#include <openthread/udp.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+
 
 void HandleJoinerCallback(otError aError, void *aContext);
 int disable_thread(otInstance *p_instance);
@@ -28,7 +27,7 @@ static otSrpClientBuffersServiceEntry loconet_udp_service;
 #define SRP_LCN_SERVICE  "_loconet._loki_loconet._udp"
 #define SRP_LCN_PORT  1234
 
-otUdpSocket loconet_udp_socket;
+extern otUdpSocket loconet_udp_socket;
 
 otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  char *instance_name, char *service_name, int port);
 otSrpClientBuffersServiceEntry *register_coap_service( otInstance *p_instance ,  char *instance_name, char *service_name);
@@ -37,9 +36,4 @@ int re_register_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntr
 int bindUdpHandler(otInstance *aInstance, otUdpSocket *aSocket, uint16_t port, otUdpReceive aHandler);
 
 
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif // MAIN_OT_UTILS_H
+#endif /* MAIN_OT_UTILS_H */

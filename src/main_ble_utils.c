@@ -23,6 +23,11 @@
 #include "main_loki.h"
 #include "main_ble_utils.h"
 
+// init global variables with default values
+ char ble_name[MAX_LEN_BLE_NAME+1] = "LOKI";
+ char full_name[MAX_LEN_FULL_NAME+1]  = "LOKI";
+ 
+
 #include "main_ot_utils.h"
 
 static struct bt_conn *default_conn;
