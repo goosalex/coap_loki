@@ -6,3 +6,4 @@
 /build*/
 .vscode/settings.json
 log.log
+coap_loki.code-workspace
