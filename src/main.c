@@ -28,6 +28,7 @@
 #include <zephyr/bluetooth/services/bas.h>
 #include <zephyr/settings/settings.h>
 #include <hw_id.h>
+#include <zephyr/drivers/hwinfo.h>
 #include <openthread/coap.h>
 
 #include <zephyr/drivers/pwm.h>
@@ -156,25 +157,40 @@ void init_default_settings()
 	speed_notify_enabled = 0;
 	change_pwm_base(1000);
 	int err;
+	int EUI64_LEN = 8;
 	
-	char buf[HW_ID_LEN] = "unsupported";
-	err = hw_id_get(buf, ARRAY_SIZE(buf));
-		if (err) {
-			LOG_ERR("hw_id_get failed (err %d)\n", err);		
+	int id_len;
+	uint8_t eui64buf[EUI64_LEN];
+	// certainly depends on CONFIG_HWINFO_NRF (or other if other device is chosen) in prj.conf
+	id_len = hwinfo_get_device_id(&eui64buf, EUI64_LEN);
+	if (id_len < 0) {
+		LOG_ERR("Failed to get EUI64 from HWINFO (err %d)\n", id_len);
+		return;
 	}
-
+	int id_str_len = id_len*2;
+	// convert eui64 to hex string
+	char buf[id_str_len+1];
+	for (int i = 0; i < id_len; i++) {
+		sprintf(buf + i * 2, "%02X", eui64buf[i]);
+	}
+	LOG_INF("EUI64_ID: %s\n",buf);
 
 
 	// Set the default name
 
-    // Copy "LOKI" to ble_name
-    strcpy(ble_name, "LOKI");
+    // Copy "LOKI"/"TREN" etc to ble_name
+	char default_name[] = DEFAULT_NAME_PREFIX;
+    strcpy(ble_name, default_name);
 
-    // Concatenate the first 4 characters from buf to ble_name
-    strncat(ble_name, buf, MAX_LEN_BLE_NAME - strlen(ble_name));
+	int start_indx = 0;
+	if (strlen(ble_name) + id_str_len > MAX_LEN_BLE_NAME) {
+		start_indx = id_str_len - (MAX_LEN_BLE_NAME - strlen(ble_name));
+	}
+    // Concatenate the last 4 characters from buf to ble_name
+    strncat(ble_name, &buf[start_indx], id_str_len - start_indx);
 
     // Ensure null termination
-    ble_name[8] = '\0';
+    ble_name[strlen(ble_name)] = '\0';
 
 	strcpy(full_name,ble_name);
 
@@ -253,7 +269,7 @@ int settings_handle_export(int (*cb)(const char *name,
 }
 
 struct settings_handler loki_settings_handler = {
-	.name = "loki",
+	.name = DEFAULT_NAME_PREFIX,
 	.h_set = loki_settings_handle_set,
 //	.h_commit = settings_handle_commit,
 	.h_export = settings_handle_export
@@ -379,6 +395,7 @@ dk_set_led_on(OT_CONNECTION_LED);
 dk_set_led_on(0);
 dk_set_led_on(1);
 dk_set_led_on(2);
+init_default_settings();
 
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		load_settings_from_nvm();

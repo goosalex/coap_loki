@@ -24,8 +24,8 @@
 #include "main_ble_utils.h"
 
 // init global variables with default values
- char ble_name[MAX_LEN_BLE_NAME+1] = "LOKI";
- char full_name[MAX_LEN_FULL_NAME+1]  = "LOKI";
+ char ble_name[MAX_LEN_BLE_NAME+1] = DEFAULT_NAME_PREFIX;
+ char full_name[MAX_LEN_FULL_NAME+1]  = DEFAULT_NAME_PREFIX;
  
 
 #include "main_ot_utils.h"
@@ -368,7 +368,7 @@ BT_GATT_SERVICE_DEFINE(
 static struct bt_data ad[3] = { BT_DATA_BYTES(
 	BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)), // 3 Bytes (length,type and value Byte)
 	BT_DATA(BT_DATA_UUID128_ALL, loki_service_uuid.val, 16), // 18 Bytes
-	BT_DATA(BT_DATA_NAME_SHORTENED, "LOKI", 4), };  // 31 Bytes - 3 - 18 - 2 = 8 Bytes left for the short name
+	BT_DATA(BT_DATA_NAME_SHORTENED, ble_name, MAX_LEN_BLE_NAME), };  // 31 Bytes - 3 - 18 - 2 = 8 Bytes left for the short name
 	// positional index of short name in "ad" advertisement data array structure. Used for further updates.
 	#define BLE_ADV_DATA_NAME_IDX 2;
 
