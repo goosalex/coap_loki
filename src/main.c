@@ -206,52 +206,71 @@ void settings_handle_commit(void){
 	LOG_INF("Settings<LOKI> loaded\n");
 }
 
-int settings_handle_set(const char *name, size_t len_rd, settings_read_cb read_cb,
+// handler for settings that start with "loki/"
+int loki_settings_handle_set(const char *name, size_t len_rd, settings_read_cb read_cb,
 			void *cb_arg)
 {
 	if (!name) {
 		return -EINVAL;
 	}
 
-	if (!strcmp(name, "loki/shortname")) {
+	if (!strcmp(name, "shortname")) {
 		ssize_t len = read_cb(cb_arg, &ble_name, sizeof(ble_name));
 		if (len < 0) {
 			LOG_ERR("Failed to read shortname from storage (err %zd)\n", len);
 			return len;
 		}
 		ble_name[len] = '\0';
-	} else if (!strcmp(name, "loki/longname")) {
+	} else if (!strcmp(name, "longname")) {
 		ssize_t len = read_cb(cb_arg, &full_name, sizeof(full_name));
 		if (len < 0) {
 			LOG_ERR("Failed to read longname from storage (err %zd)\n", len);
 			return len;
 		}
 		full_name[len] = '\0';
-	} else if (!strcmp(name, "loki/dcc")) {
+	} else if (!strcmp(name, "dcc")) {
 		ssize_t len = read_cb(cb_arg, &dcc_address, sizeof(dcc_address));
 		if (len < 0) {
 			LOG_ERR("Failed to read dcc from storage (err %zd)\n", len);
 			return len;
 		}
 	} else {
+		LOG_ERR("Unknown setting: %s\n", name);
 		return -ENOENT;
 	}
 	LOG_INF("Setting<LOKI> %s loaded\n", name);
 	return 0;
 }
 
+// Flag to check if settings have ever been initialized
+static bool settings_initialized_flag = false;
+// Callback to load the settings_initialized_flag in a blocking manner from storage. Fails(is not called) if settings_initialized_flag is not found in storage
+int settings_initialized_flag_loader_direct_cb(const char *key, size_t len, settings_read_cb read_cb, void *cb_arg, void *param){
+	if (!strcmp(key, "loki/init")) {
+		ssize_t len = read_cb(cb_arg, &settings_initialized_flag, sizeof(settings_initialized_flag));
+		if (len < 0) {
+			LOG_ERR("Failed to read settings_initialized_flag from storage (err %zd)\n", len);
+			return len;
+		}
+		settings_initialized_flag = true;
+	}
+	return 0;
+}
+
+// Callback to export the settings to storage
 int settings_handle_export(int (*cb)(const char *name,
 			       const void *value, size_t val_len))
 {	
 	(void)cb("loki/shortname", &ble_name, sizeof(ble_name));
 	(void)cb("loki/longname", &full_name, sizeof(full_name));
 	(void)cb("loki/dcc", &dcc_address, sizeof(dcc_address));
+	(void)cb("loki/init", &settings_initialized_flag, sizeof(bool));
 	return 0;
 }
 
 struct settings_handler loki_settings_handler = {
 	.name = DEFAULT_NAME_PREFIX,
-	.h_set = settings_handle_set,
+	.h_set = loki_settings_handle_set,
 //	.h_commit = settings_handle_commit,
 	.h_export = settings_handle_export
 };
@@ -269,6 +288,34 @@ void load_settings_from_nvm()
 	LOG_INF("settings subsys initialization: OK.\n");
 
 	rc = settings_register(&loki_settings_handler);
+	if (rc) {
+		LOG_ERR("settings_register: fail (err %d)\n", rc);
+		return;
+	}
+	rc = settings_load_subtree_direct("loki/init", settings_initialized_flag_loader_direct_cb, NULL);
+	if (rc) {
+		LOG_ERR("Check if App settings have ever been initialized: settings_load_subtree_direct: failed (err %d)\n", rc);
+		return;
+	}
+	if (!settings_initialized_flag) {
+		LOG_INF("Settings have never been initialized, setting defaults\n");
+		init_default_settings();
+		rc = settings_save_subtree("loki");
+		if (rc) {
+			LOG_ERR("Error saving settings to NVM: %d\n", rc);
+		} else {
+			LOG_INF("Saved settings to NVM\n");
+		}
+		settings_initialized_flag = true;
+		rc = settings_save_subtree("loki/init");
+		if (rc) {
+			LOG_ERR("Error saving first initialization flag settings_initialized_flag to NVM: %d\n", rc);
+		} else {
+			LOG_INF("Saved settings_initialized_flag to NVM\n");
+		}
+	} else {
+		LOG_INF("Settings have been initialized\n");
+	}
 }
 
 
@@ -305,7 +352,7 @@ void modify_full_name(char *buf, uint16_t len)
 	
 }
 
-void modify_short_name(char *buf, uint16_t len)
+int modify_short_name(char *buf, uint16_t len)
 {
 	if (strncmp(buf, ble_name, len) == 0) {
 		return;
@@ -314,15 +361,21 @@ void modify_short_name(char *buf, uint16_t len)
 		re_register_coap_service(openthread_get_default_instance(), &short_name_coap_service, buf, SRP_SHORTNAME_SERVICE);
 	}
 
-	if (len < MAX_LEN_BLE_NAME) {
-		strncpy(ble_name, buf, len);
+	if (len <= MAX_LEN_BLE_NAME) {
+		memcpy(&ble_name, buf, len);
 		ble_name[len] = '\0';
 	} else {
-		strncpy(ble_name, buf, MAX_LEN_BLE_NAME);
+		memcpy(&ble_name, buf, MAX_LEN_BLE_NAME);
 		ble_name[MAX_LEN_BLE_NAME] = '\0';
 	}
-	
-	updateBleShortName(ble_name);
+	int ret = settings_save_subtree("loki/shortname");
+	if (ret) {
+		LOG_ERR("Error saving shortname setting to NVM: %d\n", ret);
+	} else {
+		LOG_INF("Saved short name to NVM: %s\n", ble_name);
+	}
+	LOG_INF("Change of advertised short name will happen on next disconnect\n", ble_name);
+	return updateBleShortName(&ble_name);
 }
 
 
@@ -407,6 +460,7 @@ init_default_settings();
 		return -2;
 	}
 	settings_load_subtree("bt");
+	settings_load_subtree("loki");
 	updateBleShortName(ble_name);
 	updateBleLongName(full_name);
 	/*err = bt_ready();
