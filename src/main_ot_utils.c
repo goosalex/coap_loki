@@ -522,9 +522,9 @@ int sendOtUdpReply(otInstance *aInstance, otUdpSocket *sock, otMessageInfo *orig
 	int ret;
 	otIp6Address ip6adr;
 	u_int16_t port;
-	char *buf[OT_IP6_ADDRESS_STRING_SIZE];
+	char buf[OT_IP6_ADDRESS_STRING_SIZE];
 	ip6adr = origMsgInfo->mPeerAddr;
-	otIp6AddressToString(&ip6adr,buf,OT_IP6_ADDRESS_STRING_SIZE);
+	otIp6AddressToString(&ip6adr,&buf,OT_IP6_ADDRESS_STRING_SIZE);
 	LOG_INF("Sending back reply to %s:%d",buf,port);
 	
 	otMessageSettings messageSettings = {mLinkSecurityEnabled, OT_MESSAGE_PRIORITY_NORMAL};
