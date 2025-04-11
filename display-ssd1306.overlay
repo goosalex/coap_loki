@@ -1,0 +1,36 @@
+/ {
+    chosen {
+        zephyr,display = &ssd1306;
+    };
+
+
+
+    zephyr,user {
+
+    };
+};
+&i2c0 {
+    
+	compatible = "nordic,nrf-twi";
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	// sda-pin = <29>;
+	// scl-pin = <2>;
+
+    ssd1306: ssd1306@3c {
+        compatible = "solomon,ssd1306fb";
+        reg = <0x3c>;
+        label = "SSD1306";
+        height = <64>;
+        width  = <128>;
+        segment-offset  = <0>;
+        page-offset     = <0>;
+        display-offset  = <0>;
+        multiplex-ratio = <63>;
+        prechargep      = <0xD1>;
+        segment-remap;
+        com-invdir;
+        com-sequential;
+
+    };
+};
