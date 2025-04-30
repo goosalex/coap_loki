@@ -57,6 +57,11 @@
 
 #ifdef CONFIG_LVGL
 // Start Display related includes
+
+#ifdef CONFIG_SSD1306
+	#include "1306_display.c"
+#endif
+
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/display.h>
