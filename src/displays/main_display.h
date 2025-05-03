@@ -13,4 +13,6 @@ void updateName(const char* name);
 // Updates the display with the current IPv6 address
 void updateIPv6Address(const char* ipv6Address);
 
+void initDisplay();
+
 #endif // MAIN_DISPLAY_H

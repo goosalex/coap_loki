@@ -8,9 +8,12 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/display.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/logging/log.h>
 #include <lvgl.h>
 #include <stdio.h>
 #include <string.h>
+
+LOG_MODULE_REGISTER(lvgl_1306, CONFIG_DISPLAY_LVGL_LOG_LEVEL);
 
 
 // Define global labels for each line of the display
@@ -23,7 +26,6 @@ static lv_obj_t* ipv6_address_label;
 void initDisplay() {
     // Initialize the LVGL library
     lv_init();
-    lvgl_input_device_init(); // Initialize the input device for LVGL
 
     // Initialize the display driver (assuming a Zephyr-based display)
     const struct device* display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
@@ -37,23 +39,23 @@ void initDisplay() {
     lv_task_handler();
 
     lv_obj_t* scr = lv_scr_act();
-
+    const u_int8_t line_height = 8; // Height of each line in pixels
     // Create and position labels for each line
     connection_status_label = lv_label_create(scr);
     lv_obj_set_style_text_font(connection_status_label, &lv_font_unscii_8, 0);
-    lv_obj_align(connection_status_label, LV_ALIGN_TOP_LEFT, 0, 0); // Top line
+    lv_obj_align(connection_status_label, LV_ALIGN_TOP_LEFT, 0, 0*line_height); // Top line
 
     direction_speed_label = lv_label_create(scr);
     lv_obj_set_style_text_font(direction_speed_label, &lv_font_unscii_8, 0);
-    lv_obj_align(direction_speed_label, LV_ALIGN_TOP_LEFT, 0, 10); // Second line
+    lv_obj_align(direction_speed_label, LV_ALIGN_TOP_LEFT, 0, 1*line_height); // Second line
 
     name_label = lv_label_create(scr);
     lv_obj_set_style_text_font(name_label, &lv_font_unscii_8, 0);
-    lv_obj_align(name_label, LV_ALIGN_TOP_LEFT, 0, 20); // Third line
+    lv_obj_align(name_label, LV_ALIGN_TOP_LEFT, 0, 2*line_height); // Third line
 
     ipv6_address_label = lv_label_create(scr);
     lv_obj_set_style_text_font(ipv6_address_label, &lv_font_unscii_8, 0);
-    lv_obj_align(ipv6_address_label, LV_ALIGN_TOP_LEFT, 0, 30); // Fourth line
+    lv_obj_align(ipv6_address_label, LV_ALIGN_TOP_LEFT, 0, 3*line_height); // Fourth line
 }
 
 // Updates the display with the current connection status
@@ -67,7 +69,8 @@ void updateConnectionStatus(const char* status) {
 // Updates the display with the current direction and speed
 void updateDirectionAndSpeed(const char* direction, float speed) {
     static char buffer[256];
-    snprintf(buffer, sizeof(buffer), "Direction: %s, Speed: %.2f", direction, speed);
+    snprintf(buffer, sizeof(buffer), " %s Speed: %.2f", direction, speed);
+    LOG_DBG("Preparing buffer: %s", buffer);
     lv_label_set_text(direction_speed_label, buffer);
     lv_task_handler(); // Refresh the display
 }

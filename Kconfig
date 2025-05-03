@@ -16,6 +16,10 @@ module = OT_COAP_UTILS
 module-str = OpenThread CoAP utils
 source "${ZEPHYR_BASE}/subsys/logging/Kconfig.template.log_config"
 
+module = DISPLAY_LVGL
+module-str = Display LVGL and others
+source "${ZEPHYR_BASE}/subsys/logging/Kconfig.template.log_config"
+
 config LOKI_MOTOR1PIN
 	int "Pin for Motor controller IN1."
 	default 13
