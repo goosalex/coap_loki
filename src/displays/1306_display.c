@@ -9,6 +9,7 @@
 #include <zephyr/drivers/display.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/kernel.h> // KWORK....
 #include <lvgl.h>
 #include <stdio.h>
 #include <string.h>
@@ -36,7 +37,7 @@ void initDisplay() {
 
     // Initialize the display
     display_blanking_off(display_dev);
-    lv_task_handler();
+    lv_task_handler(); // This call is executed once, by virtue of main.c, so no wrapping as WORK is needed.
 
     lv_obj_t* scr = lv_scr_act();
     const u_int8_t line_height = 8; // Height of each line in pixels
@@ -58,21 +59,31 @@ void initDisplay() {
     lv_obj_align(ipv6_address_label, LV_ALIGN_TOP_LEFT, 0, 3*line_height); // Fourth line
 }
 
+
+void updateDisplay(struct k_work_delayable *work) {
+    // Call the LVGL task handler to refresh the display
+    lv_task_handler();
+}
+
+// Function to update the display (to be called periodically)
+K_WORK_DELAYABLE_DEFINE(display_update_work, updateDisplay);
+
 // Updates the display with the current connection status
 void updateConnectionStatus(const char* status) {
     static char buffer[256];
     snprintf(buffer, sizeof(buffer), "Connection Status: %s", status);
     lv_label_set_text(connection_status_label, buffer);
-    lv_task_handler(); // Refresh the display
+    k_work_submit(&display_update_work); // Schedule the display update    
 }
 
 // Updates the display with the current direction and speed
 void updateDirectionAndSpeed(const char* direction, float speed) {
     static char buffer[256];
     snprintf(buffer, sizeof(buffer), " %s Speed: %.2f", direction, speed);
-    LOG_DBG("Preparing buffer: %s", buffer);
+    // Update the label with the new text
     lv_label_set_text(direction_speed_label, buffer);
-    lv_task_handler(); // Refresh the display
+    k_work_submit(&display_update_work); // Schedule the display update    
+
 }
 
 // Updates the display with the current name
@@ -80,7 +91,7 @@ void updateName(const char* name) {
     static char buffer[256];
     snprintf(buffer, sizeof(buffer), "Name: %s", name);
     lv_label_set_text(name_label, buffer);
-    lv_task_handler(); // Refresh the display
+    k_work_submit(&display_update_work); // Schedule the display update    
 }
 
 // Updates the display with the current IPv6 address
@@ -88,5 +99,5 @@ void updateIPv6Address(const char* ipv6Address) {
     static char buffer[256];
     snprintf(buffer, sizeof(buffer), "IPv6 Address: %s", ipv6Address);
     lv_label_set_text(ipv6_address_label, buffer);
-    lv_task_handler(); // Refresh the display
+    k_work_submit(&display_update_work); // Schedule the display update    
 }
