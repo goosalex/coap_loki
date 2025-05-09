@@ -26,7 +26,7 @@ LOG_MODULE_REGISTER(logging_logic, LOG_LEVEL_DBG);
 }
 
 
-void notify_speed_change();
+void notify_motion_change();
 
 struct k_timer my_timer;
 K_TIMER_DEFINE(my_timer, re_apply_acceleration	, NULL);
@@ -47,7 +47,7 @@ void apply_current_acceleration(){
 		LOG_DBG("New Speed 0x%02x\n",speed_value);
 	}
 	change_speed_directly(speed_value);
-	notify_speed_change();
+	notify_motion_change();
 }
 
 void re_apply_acceleration(struct k_timer *timer_id){

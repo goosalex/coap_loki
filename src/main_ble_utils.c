@@ -186,7 +186,7 @@ static ssize_t write_accelation(struct bt_conn *conn,
 			   uint16_t len, uint16_t offset, uint8_t flags)
 {
 	speed_set_acceleration(((int8_t *)buf)[0]);
-	notify_speed_change();
+	notify_motion_change();
 	return len;
 }
 

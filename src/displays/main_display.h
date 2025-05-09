@@ -3,6 +3,8 @@
 
 // Updates the display with the current connection status
 void updateConnectionStatus(const char* status);
+void updateBTConnectionStatus(const char* status);
+void updateOTConnectionStatus(const char* status);
 
 // Updates the display with the current direction and speed
 void updateDirectionAndSpeed(const char* direction, float speed);

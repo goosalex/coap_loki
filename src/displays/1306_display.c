@@ -76,6 +76,28 @@ void updateConnectionStatus(const char* status) {
     k_work_submit(&display_update_work); // Schedule the display update    
 }
 
+char bt_conn_status[9] = {0};
+char ot_conn_status[9] = {0};
+
+// Updates the display with the current Bluetooth connection status
+void updateBTConnectionStatus(const char* status) {
+    static char buffer[256];
+    snprintf(bt_conn_status, sizeof(bt_conn_status), "%s", status);
+
+    sprintf(buffer,"BT %s OT %s", bt_conn_status, ot_conn_status);
+    lv_label_set_text(connection_status_label, buffer);
+    lv_task_handler(); // Refresh the display
+}
+// Updates the display with the current OpenThread connection status
+void updateOTConnectionStatus(const char* status) {
+    static char buffer[256];
+    snprintf(ot_conn_status, sizeof(ot_conn_status), "%s", status);
+    
+    sprintf(buffer,"BT %s OT %s", bt_conn_status, ot_conn_status);
+    lv_label_set_text(connection_status_label, buffer);
+    lv_task_handler(); // Refresh the display
+}
+
 // Updates the display with the current direction and speed
 void updateDirectionAndSpeed(const char* direction, float speed) {
     static char buffer[256];

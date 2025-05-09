@@ -135,7 +135,7 @@ LOG_MODULE_REGISTER(loki_main, CONFIG_COAP_SERVER_LOG_LEVEL);
 uint8_t speed_notify_enabled = 0;
 bool is_display_enabled = false;
 
-void notify_speed_change()
+void notify_motion_change()
 {
 		// Notify if Notifications are enabled
 	if (speed_notify_enabled) {
@@ -435,26 +435,28 @@ void init_display(void)
 int main(void)
 {
 	int err;
+
+
+	
 	printk("Startup\r");
 	LOG_INF("%s","Startup Information:\n");
 	if (motor_init() != 0 ) {
 		LOG_ERR("Motor init failed\n");
 		return -1;
 	}
-dk_set_led_on(OT_CONNECTION_LED);
-dk_set_led_on(0);
-dk_set_led_on(1);
-dk_set_led_on(2);
-init_default_settings();
+
+	init_default_settings();
 
 
 	init_display();
+	updateConnectionStatus("Initializing...");
 
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		load_settings_from_nvm();
 		err = settings_load();
 			if (err) {
 			LOG_WRN("Bluetooth and other settings load failed (err %d)\n", err);
+			updateConnectionStatus("Settings load failed");
 			return -3;
 		}
 	}	
@@ -467,6 +469,7 @@ init_default_settings();
 		LOG_INF("Thread enabled\n");
 		init_srp();				
 		LOG_INF("SRP client enabled\n");
+		updateOTConnectionStatus("+SRP");
 		if (loki_coap_init(
 			change_speed_directly,
 			speed_set_acceleration,
@@ -476,6 +479,7 @@ init_default_settings();
 			) != 0) {
 				LOG_ERR("CoAP init failed\n");			
 			} else {
+				updateOTConnectionStatus("+S+CoAP");
 				LOG_INF("CoAP initialized\n");
 				if (short_name_coap_service.mService.mInstanceName != NULL) {
 					LOG_INF("Service %s already registered as %s, freeing first", SRP_SHORTNAME_SERVICE, ble_name);
@@ -500,6 +504,8 @@ init_default_settings();
 
 			bindUdpHandler(openthread_get_default_instance(),&loconet_udp_socket, SRP_LCN_PORT, on_udp_loconet_receive);
 			LOG_INF("UDP Port %d is listening for LNet Messages addressing #%s",SRP_LCN_PORT,dcc_string);
+
+			
 		}
 
 	} else {
@@ -514,8 +520,10 @@ init_default_settings();
 	}
 	settings_load_subtree("bt");
 	settings_load_subtree("loki");
-	updateBleShortName(ble_name);
+	updateBleShortName(ble_name);	
 	updateBleLongName(full_name);
+
+	updateName(ble_name);
 	/*err = bt_ready();
 	#if (err) {
 		LOG_ERR("Bluetooth setup failed (err %d)\n", err);
@@ -527,7 +535,7 @@ init_default_settings();
 	bt_register();	
 	bt_submit_start_advertising_work();
 
-
+	updateBTConnectionStatus("up");
 
 	return 0;
 
