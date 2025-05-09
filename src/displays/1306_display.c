@@ -71,7 +71,7 @@ K_WORK_DELAYABLE_DEFINE(display_update_work, updateDisplay);
 // Updates the display with the current connection status
 void updateConnectionStatus(const char* status) {
     static char buffer[256];
-    snprintf(buffer, sizeof(buffer), "Connection Status: %s", status);
+    snprintf(buffer, sizeof(buffer), "Status: %s", status);
     lv_label_set_text(connection_status_label, buffer);
     k_work_submit(&display_update_work); // Schedule the display update    
 }
@@ -86,7 +86,7 @@ void updateBTConnectionStatus(const char* status) {
 
     sprintf(buffer,"BT %s OT %s", bt_conn_status, ot_conn_status);
     lv_label_set_text(connection_status_label, buffer);
-    lv_task_handler(); // Refresh the display
+    k_work_submit(&display_update_work); // Schedule the display update    
 }
 // Updates the display with the current OpenThread connection status
 void updateOTConnectionStatus(const char* status) {
@@ -95,7 +95,7 @@ void updateOTConnectionStatus(const char* status) {
     
     sprintf(buffer,"BT %s OT %s", bt_conn_status, ot_conn_status);
     lv_label_set_text(connection_status_label, buffer);
-    lv_task_handler(); // Refresh the display
+    k_work_submit(&display_update_work); // Schedule the display update    
 }
 
 // Updates the display with the current direction and speed
