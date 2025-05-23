@@ -23,8 +23,12 @@ static lv_obj_t* direction_speed_label;
 static lv_obj_t* name_label;
 static lv_obj_t* ipv6_address_label;
 
+// Define a flag to check if the display is initialized
+// this flag is used to prevent accessing the display before it is initialized or if the display is not ready/connected
+static bool display_initialized = false;
+
 // Initialize the display (to be called once before using the update functions)
-void initDisplay() {
+bool display_initDisplay() {
     // Initialize the LVGL library
     lv_init();
 
@@ -32,7 +36,9 @@ void initDisplay() {
     const struct device* display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
     if (!device_is_ready(display_dev)) {
         printk("Display device not ready\n");
-        return;
+        return false;
+    } else  {
+        display_initialized = true;
     }
 
     // Initialize the display
@@ -41,6 +47,10 @@ void initDisplay() {
 
     lv_obj_t* scr = lv_scr_act();
     const u_int8_t line_height = 8; // Height of each line in pixels
+    const u_int8_t line_count = 4; // Number of lines to display
+    const u_int8_t screen_width = 128; // Width of the screen in pixels
+    const u_int8_t screen_height = 64; // Height of the screen in pixels
+
     // Create and position labels for each line
     connection_status_label = lv_label_create(scr);
     lv_obj_set_style_text_font(connection_status_label, &lv_font_unscii_8, 0);
@@ -56,12 +66,19 @@ void initDisplay() {
 
     ipv6_address_label = lv_label_create(scr);
     lv_obj_set_style_text_font(ipv6_address_label, &lv_font_unscii_8, 0);
-    lv_obj_align(ipv6_address_label, LV_ALIGN_TOP_LEFT, 0, 3*line_height); // Fourth line
+    lv_obj_align(ipv6_address_label, LV_ALIGN_TOP_LEFT, 0, 3*line_height); 
+    lv_obj_set_width(ipv6_address_label, screen_width); // Set the width of the label to the screen width
+    // Fourth line
+    lv_label_set_long_mode(ipv6_address_label, LV_LABEL_LONG_SCROLL_CIRCULAR);     /*Circular scroll*/
+    return true;
 }
 
 
 void updateDisplay(struct k_work_delayable *work) {
     // Call the LVGL task handler to refresh the display
+    if (!display_initialized) {
+        return; // Display not initialized, skip the update
+    }
     lv_task_handler();
 }
 
@@ -69,7 +86,7 @@ void updateDisplay(struct k_work_delayable *work) {
 K_WORK_DELAYABLE_DEFINE(display_update_work, updateDisplay);
 
 // Updates the display with the current connection status
-void updateConnectionStatus(const char* status) {
+void display_updateConnectionStatus(const char* status) {
     static char buffer[256];
     snprintf(buffer, sizeof(buffer), "Status: %s", status);
     lv_label_set_text(connection_status_label, buffer);
@@ -80,7 +97,7 @@ char bt_conn_status[9] = {0};
 char ot_conn_status[9] = {0};
 
 // Updates the display with the current Bluetooth connection status
-void updateBTConnectionStatus(const char* status) {
+void display_updateBTConnectionStatus(const char* status) {
     static char buffer[256];
     snprintf(bt_conn_status, sizeof(bt_conn_status), "%s", status);
 
@@ -89,7 +106,7 @@ void updateBTConnectionStatus(const char* status) {
     k_work_submit(&display_update_work); // Schedule the display update    
 }
 // Updates the display with the current OpenThread connection status
-void updateOTConnectionStatus(const char* status) {
+void display_updateOTConnectionStatus(const char* status) {
     static char buffer[256];
     snprintf(ot_conn_status, sizeof(ot_conn_status), "%s", status);
     
@@ -99,9 +116,19 @@ void updateOTConnectionStatus(const char* status) {
 }
 
 // Updates the display with the current direction and speed
-void updateDirectionAndSpeed(const char* direction, float speed) {
+void display_updateDirectionAndSpeed(u_int8_t direction_pattern, u_int8_t speed) {
+    char d_buffer[3]; 
+		if ((direction_pattern & 1)==1) {
+			sprintf(d_buffer, "%s", " >");
+		} else if ((direction_pattern & 2)==2)
+		{
+			sprintf(d_buffer, "%s", "< ");
+		} else
+		 {
+			sprintf(d_buffer, "%s", "--");
+		}
     static char buffer[256];
-    snprintf(buffer, sizeof(buffer), " %s Speed: %.2f", direction, speed);
+    snprintf(buffer, sizeof(buffer), " %s Speed: %.2f", d_buffer, (float)speed);
     // Update the label with the new text
     lv_label_set_text(direction_speed_label, buffer);
     k_work_submit(&display_update_work); // Schedule the display update    
@@ -109,7 +136,7 @@ void updateDirectionAndSpeed(const char* direction, float speed) {
 }
 
 // Updates the display with the current name
-void updateName(const char* name) {
+void display_updateName(const char* name) {
     static char buffer[256];
     snprintf(buffer, sizeof(buffer), "Name: %s", name);
     lv_label_set_text(name_label, buffer);
@@ -117,8 +144,13 @@ void updateName(const char* name) {
 }
 
 // Updates the display with the current IPv6 address
-void updateIPv6Address(const char* ipv6Address) {
+void display_updateIPv6Address(const char* ipv6Address) {
     static char buffer[256];
+    if (ipv6Address == NULL) {
+        snprintf(buffer, sizeof(buffer), "IPv6 Address: N/A");
+        lv_label_set_text(ipv6_address_label, buffer);
+        return;
+    }
     snprintf(buffer, sizeof(buffer), "IPv6 Address: %s", ipv6Address);
     lv_label_set_text(ipv6_address_label, buffer);
     k_work_submit(&display_update_work); // Schedule the display update    

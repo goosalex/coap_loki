@@ -1,6 +1,6 @@
 #include "main_loki.h"
 #include "motors/motor.h"
-
+#include "displays/main_display.h"
 #include <zephyr/logging/log.h>
 
 
@@ -84,7 +84,9 @@ void change_speed_directly(uint8_t new_state){
 
 	LOG_DBG("PWM is %u * %u / %u ns\n",  new_state, pwm_pulse, pwm_period);
     motor_speed_change_pwm(pwm_period , new_state * pwm_pulse);
+
 	speed_value = new_state;
+	display_updateDirectionAndSpeed(direction_pattern, speed_value);
 	LOG_DBG("Updated speed");
 }
 
@@ -98,6 +100,7 @@ void change_direction(uint8_t new_pattern){
 		}
 		LOG_DBG ("changeing Direction from %u to %u", direction_pattern, new_pattern);
         motor_change_direction(new_pattern);
+		display_updateDirectionAndSpeed(new_pattern, speed_value);
 		direction_pattern = new_pattern;
 	} else {
 		LOG_DBG("Direction is already set to %u", direction_pattern);

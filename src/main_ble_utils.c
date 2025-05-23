@@ -22,6 +22,7 @@
 #include <hw_id.h>
 #include "main_loki.h"
 #include "main_ble_utils.h"
+#include "main_display.h"
 
 // init global variables with default values
  char ble_name[MAX_LEN_BLE_NAME+1] = DEFAULT_NAME_PREFIX;
@@ -379,6 +380,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 		printk("Connection failed (err 0x%02x)\n", err);
 	} else {
 		default_conn = bt_conn_ref(conn);
+		display_updateBTConnectionStatus("GATT");
 		printk("Connected\n");
 	}
 }
@@ -386,7 +388,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	printk("Disconnected (reason 0x%02x)\n", reason);
-
+	display_updateBTConnectionStatus("");
 	if (default_conn) {
 		bt_conn_unref(default_conn);
 		default_conn = NULL;

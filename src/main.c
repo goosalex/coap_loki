@@ -160,7 +160,7 @@ void notify_motion_change()
 			sprintf(buffer, "%s", "--");
 		}
 		LOG_DBG("Sending Speed Notifications %s %d to Display\n",buffer, speed_value);
-		updateDirectionAndSpeed(buffer, (float)speed_value);
+		display_updateDirectionAndSpeed(direction_pattern, speed_value);
 	}
 
 }
@@ -235,7 +235,8 @@ void display_start(void)
 		 {
 			sprintf(buffer, "%s", "--");
 		}
-		updateDirectionAndSpeed(&buffer, speed_value);
+		display_updateDirectionAndSpeed(direction_pattern, speed_value);
+		display_updateIPv6Address(NULL);
 	}
 }
 
@@ -425,7 +426,7 @@ void init_display(void)
 {
 #ifdef CONFIG_LVGL
 	is_display_enabled = true;
- 	initDisplay();
+ 	display_initDisplay();
 	 display_start();
 #endif
 }
@@ -449,14 +450,14 @@ int main(void)
 
 
 	init_display();
-	updateConnectionStatus("Initializing...");
+	display_updateConnectionStatus("Initializing...");
 
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		load_settings_from_nvm();
 		err = settings_load();
 			if (err) {
 			LOG_WRN("Bluetooth and other settings load failed (err %d)\n", err);
-			updateConnectionStatus("Settings load failed");
+			display_updateConnectionStatus("Settings load failed");
 			return -3;
 		}
 	}	
@@ -469,7 +470,7 @@ int main(void)
 		LOG_INF("Thread enabled\n");
 		init_srp();				
 		LOG_INF("SRP client enabled\n");
-		updateOTConnectionStatus("+SRP");
+		display_updateOTConnectionStatus("+SRP");
 		if (loki_coap_init(
 			change_speed_directly,
 			speed_set_acceleration,
@@ -479,7 +480,7 @@ int main(void)
 			) != 0) {
 				LOG_ERR("CoAP init failed\n");			
 			} else {
-				updateOTConnectionStatus("+S+CoAP");
+				display_updateOTConnectionStatus("+S+CoAP");
 				LOG_INF("CoAP initialized\n");
 				if (short_name_coap_service.mService.mInstanceName != NULL) {
 					LOG_INF("Service %s already registered as %s, freeing first", SRP_SHORTNAME_SERVICE, ble_name);
@@ -523,7 +524,7 @@ int main(void)
 	updateBleShortName(ble_name);	
 	updateBleLongName(full_name);
 
-	updateName(ble_name);
+	display_updateName(ble_name);
 	/*err = bt_ready();
 	#if (err) {
 		LOG_ERR("Bluetooth setup failed (err %d)\n", err);
@@ -535,7 +536,7 @@ int main(void)
 	bt_register();	
 	bt_submit_start_advertising_work();
 
-	updateBTConnectionStatus("up");
+	display_updateBTConnectionStatus("up");
 
 	return 0;
 
