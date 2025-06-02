@@ -56,7 +56,6 @@
 #define OT_CONNECTION_LED 3
 
 #ifdef CONFIG_LVGL
-// Start Display related includes
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/display.h>
@@ -66,6 +65,13 @@
 #include <string.h>
 #include <zephyr/kernel.h>
 #include <lvgl_input_device.h>
+// Start Display related includes
+#include "displays/main_display.h"
+#ifdef CONFIG_SSD1306
+	//#include "displays/1306_display.c"
+#endif
+
+
 // End Display related includes
 #endif
 
@@ -126,18 +132,10 @@ static const struct gpio_dt_spec led2_switch =
 
 LOG_MODULE_REGISTER(loki_main, CONFIG_COAP_SERVER_LOG_LEVEL);
 
+uint8_t speed_notify_enabled = 0;
+bool is_display_enabled = false;
 
-void init_srp() ;
-
-
-
-
-uint8_t speed_notify_enabled;
-
-
-
-
-void notify_speed_change()
+void notify_motion_change()
 {
 		// Notify if Notifications are enabled
 	if (speed_notify_enabled) {
@@ -149,6 +147,20 @@ void notify_speed_change()
 		// TODO: evaluate ret value, print error , if any
 
 		bt_notify_speed();
+	}
+	if (is_display_enabled) {
+		char buffer[3];
+		if (direction_pattern && 1) {
+			sprintf(buffer, "%s", " >");
+		} else if ((direction_pattern && 2))
+		{
+			sprintf(buffer, "%s", "< ");
+		} else
+		 {
+			sprintf(buffer, "%s", "--");
+		}
+		LOG_DBG("Sending Speed Notifications %s %d to Display\n",buffer, speed_value);
+		display_updateDirectionAndSpeed(direction_pattern, speed_value);
 	}
 
 }
@@ -210,7 +222,23 @@ void init_default_settings()
 	dcc_address = 0;
 }
 
-
+void display_start(void)
+{
+	if (is_display_enabled) {
+		char buffer[3];
+		if (direction_pattern && 1) {
+			sprintf(buffer, "%s", " >");
+		} else if ((direction_pattern && 2))
+		{
+			sprintf(buffer, "%s", "< ");
+		} else
+		 {
+			sprintf(buffer, "%s", "--");
+		}
+		display_updateDirectionAndSpeed(direction_pattern, speed_value);
+		display_updateIPv6Address(NULL);
+	}
+}
 
 
 
@@ -391,42 +419,15 @@ int modify_short_name(char *buf, uint16_t len)
 	return updateBleShortName(&ble_name);
 }
 
-# ifdef CONFIG_LVGL
-
-char count_str[11] = {0};
-const struct device *display_dev;
-lv_obj_t *hello_world_label;
 
 
-void lvgl_init(void)
-{
-	lv_init();	
-
-	// lvgl_init_input
-	// lvgl_init_display
-
-	display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
-	if (!device_is_ready(display_dev)) {
-		LOG_ERR("Device not ready, aborting test");
-		return 0;
-	}
-	hello_world_label = lv_label_create(lv_scr_act());
-	lv_label_set_text(hello_world_label, "Hella world!");
-	lv_obj_set_style_text_font(hello_world_label, &lv_font_unscii_8, 0);
-	int32_t h = lv_obj_get_height(hello_world_label);
-	lv_obj_align(hello_world_label, LV_ALIGN_TOP_LEFT, 0, 0);
-	
-	lv_task_handler();
-	display_blanking_off(display_dev);
-
-
-}
-#endif
 
 void init_display(void)
 {
 #ifdef CONFIG_LVGL
-	lvgl_init();
+	is_display_enabled = true;
+ 	display_initDisplay();
+	 display_start();
 #endif
 }
 
@@ -435,26 +436,28 @@ void init_display(void)
 int main(void)
 {
 	int err;
+
+
+	
 	printk("Startup\r");
 	LOG_INF("%s","Startup Information:\n");
 	if (motor_init() != 0 ) {
 		LOG_ERR("Motor init failed\n");
 		return -1;
 	}
-dk_set_led_on(OT_CONNECTION_LED);
-dk_set_led_on(0);
-dk_set_led_on(1);
-dk_set_led_on(2);
-init_default_settings();
+
+	init_default_settings();
 
 
 	init_display();
+	display_updateConnectionStatus("Initializing...");
 
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		load_settings_from_nvm();
 		err = settings_load();
 			if (err) {
 			LOG_WRN("Bluetooth and other settings load failed (err %d)\n", err);
+			display_updateConnectionStatus("Settings load failed");
 			return -3;
 		}
 	}	
@@ -467,6 +470,7 @@ init_default_settings();
 		LOG_INF("Thread enabled\n");
 		init_srp();				
 		LOG_INF("SRP client enabled\n");
+		display_updateOTConnectionStatus("+SRP");
 		if (loki_coap_init(
 			change_speed_directly,
 			speed_set_acceleration,
@@ -476,6 +480,7 @@ init_default_settings();
 			) != 0) {
 				LOG_ERR("CoAP init failed\n");			
 			} else {
+				display_updateOTConnectionStatus("+S+CoAP");
 				LOG_INF("CoAP initialized\n");
 				if (short_name_coap_service.mService.mInstanceName != NULL) {
 					LOG_INF("Service %s already registered as %s, freeing first", SRP_SHORTNAME_SERVICE, ble_name);
@@ -500,6 +505,8 @@ init_default_settings();
 
 			bindUdpHandler(openthread_get_default_instance(),&loconet_udp_socket, SRP_LCN_PORT, on_udp_loconet_receive);
 			LOG_INF("UDP Port %d is listening for LNet Messages addressing #%s",SRP_LCN_PORT,dcc_string);
+
+			
 		}
 
 	} else {
@@ -514,8 +521,10 @@ init_default_settings();
 	}
 	settings_load_subtree("bt");
 	settings_load_subtree("loki");
-	updateBleShortName(ble_name);
+	updateBleShortName(ble_name);	
 	updateBleLongName(full_name);
+
+	display_updateName(ble_name);
 	/*err = bt_ready();
 	#if (err) {
 		LOG_ERR("Bluetooth setup failed (err %d)\n", err);
@@ -527,7 +536,7 @@ init_default_settings();
 	bt_register();	
 	bt_submit_start_advertising_work();
 
-
+	display_updateBTConnectionStatus("up");
 
 	return 0;
 

@@ -172,11 +172,47 @@ int start_thread_joiner(char *secret)
 	return error;
 }
 
+
+static // Typical callback signature for net_if_ip_addr_cb_t:  (for reference only)
+void print_ipv6_addr(struct net_if *iface, struct net_if_addr *if_addr, void *user_data)
+{
+    char addr_str[NET_IPV6_ADDR_LEN];
+
+    if_addr->address.family = AF_INET6;
+    net_addr_ntop(AF_INET6, &if_addr->address.in6_addr, addr_str, sizeof(addr_str));
+    printf("IPv6 address: %s\n", addr_str);
+}
+
+static // Applied callback signature for net_if_ip_addr_cb_t: to display preferred address only
+void display_pref_ipv6_addr(struct net_if *iface, struct net_if_addr *if_addr, void *user_data)
+{
+	if (if_addr->addr_state == NET_ADDR_PREFERRED) {
+		char addr_str[NET_IPV6_ADDR_LEN];
+
+		if_addr->address.family = AF_INET6;
+		// Convert the IPv6 address to a null-terminated string representation
+		net_addr_ntop(AF_INET6, &if_addr->address.in6_addr, addr_str, sizeof(addr_str));
+		display_updateIPv6Address(addr_str);		
+	}
+}
+
 static void on_thread_address_changed(otChangedFlags flags, struct openthread_context *ot_context,
 				    void *user_data)
 {
 	if ( (flags & OT_CHANGED_IP6_ADDRESS_ADDED) || (flags & OT_CHANGED_IP6_ADDRESS_REMOVED) ) {
 		LOG_INF("Thread IP Address changed\n");
+
+        struct net_if *iface = ot_context->iface;
+		if (iface == NULL) {
+			LOG_ERR("No network interface found\n");
+			return;
+		}
+
+		// Iterate over all IPv6 addresses on the interface
+		// and call the callback function for each address
+		// only the preferred address will be displayed
+        net_if_ipv6_addr_foreach(iface,display_pref_ipv6_addr , NULL);
+
 		if (srp_is_enabled){
 			init_srp();
 		};
@@ -204,14 +240,17 @@ if (flags & OT_CHANGED_THREAD_ROLE) {
 		case OT_DEVICE_ROLE_CHILD:
 			//ret = dk_set_led_on(OT_CONNECTION_LED);
 			printk("OT new state  Childr\n");
+			display_updateOTConnectionStatus("+Child");
 			break;			
 		case OT_DEVICE_ROLE_ROUTER:
 			//ret = dk_set_led_on(OT_CONNECTION_LED);
 			printk("OT new state Router\n");
+			display_updateOTConnectionStatus("+Router");
 			break;		
 		case OT_DEVICE_ROLE_LEADER:
 			//dk_set_led_on(OT_CONNECTION_LED);
 			LOG_INF("Thread Role: Child/Router/Leader\n");
+			display_updateOTConnectionStatus("+Leader");
 			break;
 
 		case OT_DEVICE_ROLE_DISABLED:
