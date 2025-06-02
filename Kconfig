@@ -34,3 +34,12 @@ config LOKI_MOTOR2PIN
 	int "Spare pin for Motor controller."
 	default 14
 	range 0 31
+
+config LVGL_DISPLAY_UPDATE_PERIOD_MS
+	int "Display update period in milliseconds"
+	default 0
+	range 0 10000
+	help
+	  This option sets the period for updating the display in milliseconds.
+	  A lower value will result in more frequent updates, while a higher value
+	  will reduce the update frequency.
