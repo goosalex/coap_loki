@@ -4,11 +4,11 @@
     };
 
 
-
     zephyr,user {
 
     };
 };
+
 &i2c0 {
     
 	compatible = "nordic,nrf-twi";
