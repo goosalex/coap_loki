@@ -20,6 +20,7 @@
 #define MOTOR0PIN 14
 #define MOTOR1PIN 13
 #define MOTOR2PIN 15
+#define GPIOBANK 1
 /{
       
          zephyr,user {
@@ -42,9 +43,9 @@
 &pinctrl {
     pwm0_default3: pwm0_default {
         group1 {
-            psels = <NRF_PSEL(PWM_OUT0, 0, MOTOR0PIN)>,
-                    <NRF_PSEL(PWM_OUT1, 0, MOTOR1PIN)>,
-                    <NRF_PSEL(PWM_OUT2, 0, MOTOR2PIN)>;
+            psels = <NRF_PSEL(PWM_OUT0, GPIOBANK, MOTOR0PIN)>,
+                    <NRF_PSEL(PWM_OUT1, GPIOBANK, MOTOR1PIN)>,
+                    <NRF_PSEL(PWM_OUT2, GPIOBANK, MOTOR2PIN)>;
             nordic,invert;
             low-power-enable;
         };
@@ -52,9 +53,9 @@
 
     pwm0_sleep3: pwm0_sleep {
         group1 {
-            psels = <NRF_PSEL(PWM_OUT0, 0, MOTOR0PIN)>,
-                    <NRF_PSEL(PWM_OUT1, 0, MOTOR1PIN)>,
-                    <NRF_PSEL(PWM_OUT2, 0, MOTOR2PIN)>;
+            psels = <NRF_PSEL(PWM_OUT0, GPIOBANK, MOTOR0PIN)>,
+                    <NRF_PSEL(PWM_OUT1, GPIOBANK, MOTOR1PIN)>,
+                    <NRF_PSEL(PWM_OUT2, GPIOBANK, MOTOR2PIN)>;
             low-power-enable;
         };
     };

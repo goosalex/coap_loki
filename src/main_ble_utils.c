@@ -35,83 +35,67 @@ static struct bt_conn *default_conn;
 
 LOG_MODULE_REGISTER(loki_ble, CONFIG_COAP_SERVER_LOG_LEVEL);
 
-/* Loki Service */
-static struct bt_uuid_128 loki_service_uuid =
-	BT_UUID_INIT_128(
-		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
-		0x01,0x00,
-		0xbd,0xfc
-	);
+/* Loki Service UUIDs using BT_UUID_DECLARE_128 macro */
 // loki_service_uuid formatted as UUID is fcbd0001-5e25-4387-99b7-53a5495a0c35
+#define LOKI_SERVICE_UUID_VAL \
+    BT_UUID_128_ENCODE(0xfcbd0001, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
+#define LOKI_SERVICE_UUID \
+    BT_UUID_DECLARE_128(LOKI_SERVICE_UUID_VAL)
 
 // Speed characteristic
 // formatted as UUID is fcbd0002-5e25-4387-99b7-53a5495a0c35
-static struct bt_uuid_128 loki_speed_uuid =
-	BT_UUID_INIT_128(
-		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
-		0x02,0x00,
-		0xbd,0xfc
-			);
+#define LOKI_SPEED_UUID_VAL \
+    BT_UUID_128_ENCODE(0xfcbd0002, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
+#define LOKI_SPEED_UUID \
+    BT_UUID_DECLARE_128(LOKI_SPEED_UUID_VAL)
+
 // Accelerate characteristic
 // formatted as UUID is fcbd0003-5e25-4387-99b7-53a5495a0c35
-static struct bt_uuid_128 loki_accelerate_uuid =
-	BT_UUID_INIT_128(
-		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
-		0x03,0x00,
-		0xbd,0xfc
-	);
+#define LOKI_ACCELERATE_UUID_VAL \
+    BT_UUID_128_ENCODE(0xfcbd0003, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
+#define LOKI_ACCELERATE_UUID \
+    BT_UUID_DECLARE_128(LOKI_ACCELERATE_UUID_VAL)
+
 // PWM characteristic
 // formatted as UUID is fcbd0004-5e25-4387-99b7-53a5495a0c35
-static struct bt_uuid_128 loki_pwm_uuid =
-	BT_UUID_INIT_128(
-		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
-		0x04,0x00,
-		0xbd,0xfc
-	);
+#define LOKI_PWM_UUID_VAL \
+    BT_UUID_128_ENCODE(0xfcbd0004, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
+#define LOKI_PWM_UUID \
+    BT_UUID_DECLARE_128(LOKI_PWM_UUID_VAL)
 
 // Direction characteristic
 // formatted as UUID is fcbd0005-5e25-4387-99b7-53a5495a0c35
-static struct bt_uuid_128 loki_direction_uuid =
-	BT_UUID_INIT_128(
-		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
-		0x05,0x00,
-		0xbd,0xfc
-	);
+#define LOKI_DIRECTION_UUID_VAL \
+    BT_UUID_128_ENCODE(0xfcbd0005, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
+#define LOKI_DIRECTION_UUID \
+    BT_UUID_DECLARE_128(LOKI_DIRECTION_UUID_VAL)
 
 // Long Name characteristic
 // formatted as UUID is fcbd0006-5e25-4387-99b7-53a5495a0c35
-static struct bt_uuid_128 loki_name_uuid =
-	BT_UUID_INIT_128(
-		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
-		0x06,0x00,
-		0xbd,0xfc
-	);
+#define LOKI_NAME_UUID_VAL \
+    BT_UUID_128_ENCODE(0xfcbd0006, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
+#define LOKI_NAME_UUID \
+    BT_UUID_DECLARE_128(LOKI_NAME_UUID_VAL)
 
 // virtual (DCC) address characteristic
 // formatted as UUID is fcbd0007-5e25-4387-99b7-53a5495a0c35
-static struct bt_uuid_128 loki_dcc_uuid =
-	BT_UUID_INIT_128(
-		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
-		0x07,0x00,
-		0xbd,0xfc
-	);
+#define LOKI_DCC_UUID_VAL \
+    BT_UUID_128_ENCODE(0xfcbd0007, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
+#define LOKI_DCC_UUID \
+    BT_UUID_DECLARE_128(LOKI_DCC_UUID_VAL)
 
-// OpenThread  Joiner Credential
+// OpenThread Joiner Credential
 // see https://openthread.io/guides/border-router/external-commissioning/prepare#prepare_the_joiner_device
 // formatted as UUID is fcbd000a-5e25-4387-99b7-53a5495a0c35
-static struct bt_uuid_128 loki_credential_uuid =
-	BT_UUID_INIT_128(
-		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
-		0x0a,0x00,
-		0xbd,0xfc
-	);	
+#define LOKI_CREDENTIAL_UUID_VAL \
+    BT_UUID_128_ENCODE(0xfcbd000a, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
+#define LOKI_CREDENTIAL_UUID \
+    BT_UUID_DECLARE_128(LOKI_CREDENTIAL_UUID_VAL)
 
-static struct bt_uuid_128 loki_ble_name_uuid =
-	BT_UUID_INIT_128(
-		0x35,0x0c,0x5a,0x49,0xa5,0x53,0xb7,0x99,0x87,0x43,0x25,0x5e,
-		0x0b,0x00,
-		0xbd,0xfc
-	);	
+#define LOKI_BLE_NAME_UUID_VAL \
+    BT_UUID_128_ENCODE(0xfcbd000b, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
+#define LOKI_BLE_NAME_UUID \
+    BT_UUID_DECLARE_128(LOKI_BLE_NAME_UUID_VAL)
 
 
 
@@ -306,59 +290,56 @@ static ssize_t write_credential(struct bt_conn *conn,
 }
 
 /* Loki Service Declaration */
-
-
 BT_GATT_SERVICE_DEFINE(
-	loki_service, BT_GATT_PRIMARY_SERVICE(&loki_service_uuid),
-	// Acceleration Characteristic
-	// Properties: Read, Write
-	BT_GATT_CHARACTERISTIC(&loki_accelerate_uuid.uuid,
-			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
-			       BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-				read_accelation, write_accelation,
-			       &accel_order),
-	// Speed Characteristic
-	// Properties: Read, Write, Notify
-	BT_GATT_CHARACTERISTIC(&loki_speed_uuid.uuid,
-			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE | BT_GATT_CHRC_NOTIFY,
-			       BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-			       read_speed, write_speed, &speed_value),
-	// Speed Change  CCCD (used for Notifications and Indications)
-	 BT_GATT_CCC(speed_ccc_cfg_changed,
-		    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE) ,
+    loki_service, BT_GATT_PRIMARY_SERVICE(LOKI_SERVICE_UUID),
+    // Acceleration Characteristic
+    // Properties: Read, Write
+    BT_GATT_CHARACTERISTIC(LOKI_ACCELERATE_UUID,
+                   BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+                read_accelation, write_accelation,
+                   &accel_order),
+    // Speed Characteristic
+    // Properties: Read, Write, Notify
+    BT_GATT_CHARACTERISTIC(LOKI_SPEED_UUID,
+                   BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE | BT_GATT_CHRC_NOTIFY,
+                   BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
+                   read_speed, write_speed, &speed_value),
+    // Speed Change  CCCD (used for Notifications and Indications)
+     BT_GATT_CCC(speed_ccc_cfg_changed,
+            BT_GATT_PERM_READ | BT_GATT_PERM_WRITE) ,
 
-    BT_GATT_CHARACTERISTIC(&loki_pwm_uuid.uuid,
+    BT_GATT_CHARACTERISTIC(LOKI_PWM_UUID,
                    BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
                    read_pwm, write_pwm, &pwm_base),
 
-    BT_GATT_CHARACTERISTIC(&loki_direction_uuid.uuid,
+    BT_GATT_CHARACTERISTIC(LOKI_DIRECTION_UUID,
                    BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
                    read_direction, write_direction, &direction_pattern),
 
-    BT_GATT_CHARACTERISTIC(&loki_name_uuid.uuid,
+    BT_GATT_CHARACTERISTIC(LOKI_NAME_UUID,
                      BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                      BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
                      read_name, write_name, NULL),    
   
-    BT_GATT_CHARACTERISTIC(&loki_dcc_uuid.uuid,
+    BT_GATT_CHARACTERISTIC(LOKI_DCC_UUID,
                      BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                      BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
                      read_dcc, write_dcc, NULL),    
 
-	// Setting the credential initiates a joiner procedure, reading you'll obtain the EUI64
-    BT_GATT_CHARACTERISTIC(&loki_credential_uuid.uuid,
-            	     BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
+    // Setting the credential initiates a joiner procedure, reading you'll obtain the EUI64
+    BT_GATT_CHARACTERISTIC(LOKI_CREDENTIAL_UUID,
+                     BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                      BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
                      read_credential, write_credential, NULL),    	
 
-    BT_GATT_CHARACTERISTIC(&loki_ble_name_uuid.uuid,
+    BT_GATT_CHARACTERISTIC(LOKI_BLE_NAME_UUID,
                      BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                      BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
                      read_ble_name, write_ble_name, NULL)  
 
-				   );				   
+                   );				   
 
 /* Advertising data */
 // Problem: The payload is limited to 31 bytes, so the name shound not be too long
@@ -367,11 +348,11 @@ BT_GATT_SERVICE_DEFINE(
 // Problem: The scan response is not always sent, so the name may not be updated 
 
 static struct bt_data ad[3] = { BT_DATA_BYTES(
-	BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)), // 3 Bytes (length,type and value Byte)
-	BT_DATA(BT_DATA_UUID128_ALL, loki_service_uuid.val, 16), // 18 Bytes
-	BT_DATA(BT_DATA_NAME_SHORTENED, ble_name, MAX_LEN_BLE_NAME), };  // 31 Bytes - 3 - 18 - 2 = 8 Bytes left for the short name
+    BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)), // 3 Bytes (length,type and value Byte)
+    BT_DATA_BYTES(BT_DATA_UUID128_ALL, LOKI_SERVICE_UUID_VAL), // 18 Bytes
+    BT_DATA(BT_DATA_NAME_SHORTENED, ble_name, MAX_LEN_BLE_NAME), };  // 31 Bytes - 3 - 18 - 2 = 8 Bytes left for the short name
 	// positional index of short name in "ad" advertisement data array structure. Used for further updates.
-	#define BLE_ADV_DATA_NAME_IDX 2;
+#define BLE_ADV_DATA_NAME_IDX 2
 
 
 static void connected(struct bt_conn *conn, uint8_t err)
@@ -394,7 +375,9 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 		default_conn = NULL;
 	}
 	// The names might have changed, so update the advertising data
-	bt_submit_refresh_advertising_data_work();
+	// bt_submit_refresh_advertising_data_work();
+	// After disconnect, advertising might not be active
+	bt_submit_start_advertising_work();
 }
 
 static struct bt_conn_cb conn_callbacks = {
@@ -461,7 +444,7 @@ printk("Changed device name to: %s\n", newName);
 
 void start_advertising(struct k_work *work) {
   int err;
-  err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd)); // ,NULL, 0);
+  err = bt_le_adv_start(BT_LE_ADV_CONN_ONE_TIME, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd)); // ,NULL, 0);
   if (err) {
 	LOG_ERR("Advertising failed to start (err %d)\n", err);
 	
@@ -516,7 +499,13 @@ int bt_ready(void)
 {
 	int err;	
 	bt_le_adv_stop();
-	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd)); // ,NULL, 0);
+	err = bt_le_adv_start(BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONNECTABLE | 
+										BT_LE_ADV_OPT_USE_NAME,
+										BT_GAP_ADV_FAST_INT_MIN_2,
+										BT_GAP_ADV_FAST_INT_MAX_2,
+										NULL),
+						ad, ARRAY_SIZE(ad),
+						sd, ARRAY_SIZE(sd));
 	if (err) {
 		LOG_ERR("Advertising failed to start (err %d)\n", err);
 		return err;
