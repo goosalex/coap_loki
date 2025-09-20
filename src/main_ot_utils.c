@@ -238,17 +238,14 @@ static void on_thread_state_changed(otChangedFlags flags, struct openthread_cont
 if (flags & OT_CHANGED_THREAD_ROLE) {
 		switch (otThreadGetDeviceRole(ot_context->instance)) {
 		case OT_DEVICE_ROLE_CHILD:
-			//ret = dk_set_led_on(OT_CONNECTION_LED);
 			printk("OT new state  Childr\n");
 			display_updateOTConnectionStatus("+Child");
 			break;			
 		case OT_DEVICE_ROLE_ROUTER:
-			//ret = dk_set_led_on(OT_CONNECTION_LED);
 			printk("OT new state Router\n");
 			display_updateOTConnectionStatus("+Router");
 			break;		
 		case OT_DEVICE_ROLE_LEADER:
-			//dk_set_led_on(OT_CONNECTION_LED);
 			LOG_INF("Thread Role: Child/Router/Leader\n");
 			display_updateOTConnectionStatus("+Leader");
 			break;
@@ -256,7 +253,6 @@ if (flags & OT_CHANGED_THREAD_ROLE) {
 		case OT_DEVICE_ROLE_DISABLED:
 		case OT_DEVICE_ROLE_DETACHED:
 		default:
-			//dk_set_led_on(OT_CONNECTION_LED);
 			LOG_INF("Thread Role: Disabled/Detached\n");
 			// deactivate_provisionig();			
 			break;

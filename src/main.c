@@ -39,7 +39,7 @@
 #include <openthread/srp_client.h>
 #include <openthread/srp_client_buffers.h>
 
-#include <dk_buttons_and_leds.h>
+
 #include "main_ble_utils.h"
 #include "loki_coap_utils.h"
 #include "main_ot_utils.h"
@@ -53,7 +53,6 @@
 #include "motors/motorTB67driver.c"
 #endif
 
-#define OT_CONNECTION_LED 3
 
 #ifdef CONFIG_LVGL
 #include <zephyr/device.h>
@@ -126,8 +125,16 @@ static const struct gpio_dt_spec led2_switch =
 
 #endif
 
+// Remnants from Blink Demo - reactivate, if needed
+/* The devicetree node identifier for the "led0" alias. */
+#define LED0_NODE DT_ALIAS(led0)
 
-
+/*
+ * A build error on this line means your board is unsupported.
+ * See the sample documentation for information on how to fix this.
+ */
+static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
+// End Blinky
 
 
 LOG_MODULE_REGISTER(loki_main, CONFIG_COAP_SERVER_LOG_LEVEL);
@@ -432,14 +439,12 @@ void init_display(void)
 }
 
 
-
 int main(void)
 {
 	int err;
 
 
-	
-	printk("Startup\r");
+
 	LOG_INF("%s","Startup Information:\n");
 	if (motor_init() != 0 ) {
 		LOG_ERR("Motor init failed\n");
