@@ -1,0 +1,3 @@
+if(SB_CONFIG_BOARD_NRF52840DONGLE)
+  set(PM_STATIC_YML_FILE ${CMAKE_CURRENT_LIST_DIR}/boards/nrf52840dongle_nrf52840_pm_static.yml CACHE INTERNAL "")
+endif()
