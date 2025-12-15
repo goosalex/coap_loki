@@ -22,7 +22,7 @@
 #include <hw_id.h>
 #include "main_loki.h"
 #include "main_ble_utils.h"
-#include "main_display.h"
+#include "displays/main_display.h"
 
 // init global variables with default values
  char ble_name[MAX_LEN_BLE_NAME+1] = DEFAULT_NAME_PREFIX;
@@ -355,7 +355,7 @@ static struct bt_data ad[3] = { BT_DATA_BYTES(
 #define BLE_ADV_DATA_NAME_IDX 2
 
 
-static void connected(struct bt_conn *conn, uint8_t err)
+static void connected_cb(struct bt_conn *conn, uint8_t err)
 {
 	if (err) {
 		printk("Connection failed (err 0x%02x)\n", err);
@@ -366,7 +366,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	}
 }
 
-static void disconnected(struct bt_conn *conn, uint8_t reason)
+static void disconnected_cb(struct bt_conn *conn, uint8_t reason)
 {
 	printk("Disconnected (reason 0x%02x)\n", reason);
 	display_updateBTConnectionStatus("");
@@ -381,8 +381,8 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 }
 
 static struct bt_conn_cb conn_callbacks = {
-	.connected = connected,
-	.disconnected = disconnected,
+	.connected = connected_cb,
+	.disconnected = disconnected_cb,
 };
 
 #define DEVICE_NAME		CONFIG_BT_DEVICE_NAME
@@ -444,7 +444,17 @@ printk("Changed device name to: %s\n", newName);
 
 void start_advertising(struct k_work *work) {
   int err;
-  err = bt_le_adv_start(BT_LE_ADV_CONN_ONE_TIME, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd)); // ,NULL, 0);
+  static const struct bt_le_adv_param adv_param = {
+		.id = BT_ID_DEFAULT,
+		.sid = 0,
+		.secondary_max_skip = 0,
+		.options = 0,
+		.interval_min = BT_GAP_ADV_FAST_INT_MIN_2,
+		.interval_max = BT_GAP_ADV_FAST_INT_MAX_2,
+		.peer = NULL,
+	};
+  
+  err = bt_le_adv_start(&adv_param, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
   if (err) {
 	LOG_ERR("Advertising failed to start (err %d)\n", err);
 	
@@ -497,15 +507,19 @@ void bt_notify_speed(void)
 
 int bt_ready(void)
 {
-	int err;	
+	int err;
+	static const struct bt_le_adv_param adv_param = {
+		.id = BT_ID_DEFAULT,
+		.sid = 0,
+		.secondary_max_skip = 0,
+		.options = 0,
+		.interval_min = BT_GAP_ADV_FAST_INT_MIN_2,
+		.interval_max = BT_GAP_ADV_FAST_INT_MAX_2,
+		.peer = NULL,
+	};
+	
 	bt_le_adv_stop();
-	err = bt_le_adv_start(BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONNECTABLE | 
-										BT_LE_ADV_OPT_USE_NAME,
-										BT_GAP_ADV_FAST_INT_MIN_2,
-										BT_GAP_ADV_FAST_INT_MAX_2,
-										NULL),
-						ad, ARRAY_SIZE(ad),
-						sd, ARRAY_SIZE(sd));
+	err = bt_le_adv_start(&adv_param, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
 	if (err) {
 		LOG_ERR("Advertising failed to start (err %d)\n", err);
 		return err;
