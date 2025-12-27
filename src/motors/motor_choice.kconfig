@@ -1,0 +1,26 @@
+menu "Motor Driver Configuration"
+
+choice MOTOR_DRIVER_TYPE
+    prompt "Select Motor Driver"
+    default MOTOR_DRIVER_DUMMY
+    help
+      Select which motor driver to compile and link
+
+config MOTOR_DRIVER_DUMMY
+    bool "Dummy Motor Driver (No-Op)"
+    help
+      Use dummy motor driver that performs no operations
+
+config MOTOR_DRIVER_TB67
+    bool "TB67 Motor Driver"
+    help
+      Use TB67 motor driver implementation
+
+config MOTOR_DRIVER_DRV8871  
+    bool "DRV8871 Motor Driver"
+    help
+      Use DRV8871 motor driver implementation
+
+endchoice
+
+endmenu

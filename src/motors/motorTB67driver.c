@@ -18,10 +18,28 @@ static struct pwm_dt_spec pwm_dt = PWM_DT_SPEC_GET(PWM_NODE);
 #endif
 */
 
+/* The idea here is to pre-configure the PWM channels for the motor driver . One channel for each direction pin.
+   (DIR_A_CHANNEL and DIR_B_CHANNEL). The variable PWM_CHANNEL is used to select which channel is currently active for speed control.
+   Its up to higher level logic to assure that only one direction pin is active at a time, by not allowing direction changes while speed is non-zero.
+*/
+
+
 static int PWM_CHANNEL    = 0;
 static const int DIR_A_CHANNEL  = 1;
 static const int DIR_B_CHANNEL  = 2;
 static int DEF_PERIOD = 30518; // in ns => 32768 Hz;
+
+// TB67 capabilities
+static const struct motor_capabilities tb67_caps = {
+    .supports_pwm = 1,
+    .supports_direction = 1,
+    .max_channels = 2
+};
+
+const struct motor_capabilities* motor_get_capabilities(void)
+{
+    return &tb67_caps;
+}
 
 /* FIXME: NOt sure, this works at all 
 static int fix_pwm_as_gpio(int channel, int value){
