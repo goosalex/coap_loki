@@ -33,6 +33,17 @@
 
 static struct bt_conn *default_conn;
 
+/* Advertising parameters used by start_advertising() and bt_ready() */
+static const struct bt_le_adv_param adv_param = {
+	.id = BT_ID_DEFAULT,
+	.sid = 0,
+	.secondary_max_skip = 0,
+	.options = 0,
+	.interval_min = BT_GAP_ADV_FAST_INT_MIN_2,
+	.interval_max = BT_GAP_ADV_FAST_INT_MAX_2,
+	.peer = NULL,
+};
+
 LOG_MODULE_REGISTER(loki_ble, CONFIG_COAP_SERVER_LOG_LEVEL);
 
 /* Loki Service UUIDs using BT_UUID_DECLARE_128 macro */
@@ -444,15 +455,6 @@ printk("Changed device name to: %s\n", newName);
 
 void start_advertising(struct k_work *work) {
   int err;
-  static const struct bt_le_adv_param adv_param = {
-		.id = BT_ID_DEFAULT,
-		.sid = 0,
-		.secondary_max_skip = 0,
-		.options = 0,
-		.interval_min = BT_GAP_ADV_FAST_INT_MIN_2,
-		.interval_max = BT_GAP_ADV_FAST_INT_MAX_2,
-		.peer = NULL,
-	};
   
   err = bt_le_adv_start(&adv_param, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
   if (err) {
@@ -508,15 +510,6 @@ void bt_notify_speed(void)
 int bt_ready(void)
 {
 	int err;
-	static const struct bt_le_adv_param adv_param = {
-		.id = BT_ID_DEFAULT,
-		.sid = 0,
-		.secondary_max_skip = 0,
-		.options = 0,
-		.interval_min = BT_GAP_ADV_FAST_INT_MIN_2,
-		.interval_max = BT_GAP_ADV_FAST_INT_MAX_2,
-		.peer = NULL,
-	};
 	
 	bt_le_adv_stop();
 	err = bt_le_adv_start(&adv_param, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
