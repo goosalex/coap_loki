@@ -7,3 +7,4 @@
 .vscode/
 log.log
 coap_loki.code-workspace
+_codeql_detected_source_root
