@@ -10,10 +10,14 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 
 project(coap_loki)
 
-FILE(GLOB app_sources src/*.c src/displays/*.c src/motors/.c)
+FILE(GLOB app_sources src/*.c src/displays/*.c src/motors/*.c)
+# Add motor drivers subdirectory
+add_subdirectory(src/motors)
+
 
 # NORDIC SDK APP START
 target_sources(app PRIVATE ${app_sources})
 
 target_include_directories(app PRIVATE interface)
 # NORDIC SDK APP END
+

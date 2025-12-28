@@ -1,3 +1,5 @@
+#ifdef CONFIG_SSD1306
+#ifdef CONFIG_DISPLAY
 #include "main_display.h"
 
 #ifndef CONFIG_LVGL
@@ -286,3 +288,6 @@ void display_updateIPv6Address(const char* ipv6Address) {
     lv_label_set_text(ipv6_address_label, buffer);
     display_unlock(); // Unlock the mutex after updating the display
 }
+
+#endif // CONFIG_SSD1306
+#endif // CONFIG_DISPLAY
