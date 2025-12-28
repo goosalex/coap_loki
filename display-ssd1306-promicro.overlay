@@ -1,0 +1,60 @@
+/ {
+    chosen {
+        zephyr,display = &ssd1306;
+     
+    };
+
+
+    zephyr,user {
+
+    };
+};
+
+
+
+&pinctrl {
+	i2c0_default: i2c0_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 0, 8)>,
+				<NRF_PSEL(TWIM_SCL, 0, 6)>;
+		};
+	};
+
+	i2c0_sleep: i2c0_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 0, 8)>,
+				<NRF_PSEL(TWIM_SCL, 0, 6)>;
+			low-power-enable;
+		};
+	};
+};
+
+&uart0 {
+    status = "disabled";
+};
+
+&i2c0 {
+	compatible = "nordic,nrf-twi";
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	pinctrl-0 = <&i2c0_default>;
+	pinctrl-1 = <&i2c0_sleep>;
+	pinctrl-names = "default", "sleep";
+
+    ssd1306: ssd1306@3c {
+        compatible = "solomon,ssd1306fb";
+        reg = <0x3c>;
+        label = "SSD1306";
+        height = <32>; // Change to <64> for 64-pixel height displays
+        width  = <128>;
+        segment-offset  = <0>;
+        page-offset     = <0>;
+        display-offset  = <0>;
+        multiplex-ratio = <63>;
+        prechargep      = <0xD1>;
+        segment-remap;
+        com-invdir;
+        com-sequential;
+
+    };
+};
