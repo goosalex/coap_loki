@@ -45,13 +45,7 @@
 #include "main_ot_utils.h"
 #include "main_loki.h"
 
-#if MOTOR_DRV8871
-#include "motors/motorDRV8871.h"
-#elif MOTOR_TB6612		
-#include "motors/motorTB6612driver.c"
-#else
-#include "motors/motorTB67driver.c"
-#endif
+#include "motors/motor.h"
 
 
 #ifdef CONFIG_LVGL
@@ -83,58 +77,7 @@
 		    (DT_GPIO_FLAGS(node, gpios)),			\
 		    (0))
 
-// LED 1 Defintions
-/* The devicetree node identifier for the "led0" alias - which corresponds to LED 1 on the board. 
-#define LED1_NODE DT_NODELABEL(led0)
-#if !DT_NODE_EXISTS(DT_NODELABEL(led0))
-#error "Overlay for LED0 node not properly defined."
-#endif
-*/
-/*
-// LED 2 Defintions - temporary replacement for speed PWM
-#define LED2_NODE DT_NODELABEL(led2)
-#if !DT_NODE_EXISTS(DT_NODELABEL(led2))
-#error "Overlay for LED2 node not properly defined."
-#endif
 
-
-#if !( DT_NODE_HAS_STATUS(LED1_NODE, okay) && DT_NODE_HAS_STATUS(LED2_NODE, okay))
-#error "LED1 or LED2 node not okay."
-
-#endif
-*/
-
-/* First Demo uses all other 3 LEDs
-static const struct gpio_dt_spec led2_switch =
-	GPIO_DT_SPEC_GET_OR(DT_NODELABEL(led1_switch), gpios, {0});
-*/
-
-/*
- * Get button configuration from the devicetree sw0 alias.
- *
- * At least a GPIO device and pin number must be provided. The 'flags'
- * cell is optional.
- */
-
-#define BUTTON1_NODE DT_ALIAS(sw0)
-
-#if DT_NODE_HAS_STATUS(BUTTON1_NODE, okay)
-
-#else
-#error "Unsupported board: sw0 devicetree alias is not defined"
-
-#endif
-
-// Remnants from Blink Demo - reactivate, if needed
-/* The devicetree node identifier for the "led0" alias. */
-#define LED0_NODE DT_ALIAS(led0)
-
-/*
- * A build error on this line means your board is unsupported.
- * See the sample documentation for information on how to fix this.
- */
-static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED0_NODE, gpios);
-// End Blinky
 
 
 LOG_MODULE_REGISTER(loki_main, CONFIG_COAP_SERVER_LOG_LEVEL);
