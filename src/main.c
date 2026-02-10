@@ -46,7 +46,16 @@
 #include "main_loki.h"
 
 #include "motors/motor.h"
+// BEGIN Settings and conditional NVM initialization related imports
+#include <zephyr/fs/nvs.h>
+// will eventually become #include <zephyr/storage/nvs/nvs.h>
+#include <zephyr/storage/flash_map.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/settings/settings.h>
 
+#include "app_version.h"
+// END Settings and NVM related imports
 
 #ifdef CONFIG_LVGL
 #include <zephyr/device.h>
@@ -81,6 +90,25 @@
 
 
 LOG_MODULE_REGISTER(loki_main, CONFIG_COAP_SERVER_LOG_LEVEL);
+
+// BEGIN Settings and conditional NVM initialization related code. To be moved to separate file when stable
+#define NVS_KEY_VERSION   0x10
+#define NVS_KEY_BUILD     0x11
+
+struct app_version {
+    uint8_t major;
+    uint8_t minor;
+    uint8_t patch;
+};
+
+static bool semver_major_minor_changed(const struct app_version *a,
+                                       const struct app_version *b)
+{
+    return (a->major != b->major) || (a->minor != b->minor);
+}
+
+static struct nvs_fs nvs;
+// END SEttings and NVM
 
 uint8_t speed_notify_enabled = 0;
 bool is_display_enabled = false;
@@ -122,9 +150,117 @@ void stop_motor()
 	change_speed_directly(0);
 }
 
+/* ---- Build-time checks ---- */
 
+BUILD_ASSERT(
+    DT_HAS_CHOSEN(zephyr_storage),
+    "Missing chosen { zephyr,storage = ... }"
+);
 
-void init_default_settings()
+/*
+BUILD_ASSERT(
+    DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_storage), fixed_partitions),
+    "zephyr,storage is not a fixed partition"
+);
+*/
+
+#define STORAGE_NODE DT_CHOSEN(zephyr_storage)
+
+BUILD_ASSERT(
+    DT_REG_SIZE(STORAGE_NODE) >= 0x4000,
+    "zephyr,storage partition too small"
+);
+
+/* ---- NVS ---- */
+
+int init_and_optionally_clear_nvs(void)
+{
+    const struct flash_area *fa;
+    int err;
+
+    struct app_version current_ver = {
+        .major = APP_VERSION_MAJOR,
+        .minor = APP_VERSION_MINOR,
+        .patch = APP_VERSION_PATCH,
+    };
+
+    struct app_version stored_ver = {0};
+    uint32_t stored_build = 0;
+    uint32_t current_build = APP_BUILD_NUMBER;
+
+    bool clear = false;
+
+    /* Open NVS flash area */
+    err = flash_area_open(FIXED_PARTITION_ID(nvs_storage), &fa);
+    if (err) {
+        return err;
+    }
+
+    /* Configure NVS filesystem */
+    nvs.flash_device = fa->fa_dev;
+    nvs.offset = fa->fa_off;
+    nvs.sector_size = fa->fa_size / 4;
+    nvs.sector_count = 4;
+
+    err = nvs_mount(&nvs);
+    if (err) {
+        flash_area_close(fa);
+        return err;
+    }
+
+    /* Read stored values (absence is OK) */
+    err = nvs_read(&nvs, NVS_KEY_VERSION,
+                   &stored_ver, sizeof(stored_ver));
+    if (err < 0) {
+        stored_ver = (struct app_version){0};
+    }
+
+    err = nvs_read(&nvs, NVS_KEY_BUILD,
+                   &stored_build, sizeof(stored_build));
+    if (err < 0) {
+        stored_build = 0;
+    }
+
+    /* Version-based wipe (SemVer MAJOR.MINOR only) */
+    if (IS_ENABLED(CONFIG_CLEAR_SETTINGS_NEW_VERSION) &&
+        semver_major_minor_changed(&stored_ver, &current_ver)) {
+
+        printk("Version change %u.%u → %u.%u\n",
+               stored_ver.major, stored_ver.minor,
+               current_ver.major, current_ver.minor);
+        clear = true;
+    }
+
+    /* Build-based wipe */
+    if (IS_ENABLED(CONFIG_CLEAR_SETTINGS_NEW_BUILD) &&
+        stored_build != current_build) {
+
+        printk("Build change %u → %u\n",
+               stored_build, current_build);
+        clear = true;
+    }
+
+    /* Clear NVS if required */
+    if (clear) {
+        err = nvs_clear(&nvs);
+        if (err) {
+            flash_area_close(fa);
+            return err;
+        }
+    }
+
+    /* Always store current version & build */
+    nvs_write(&nvs, NVS_KEY_VERSION,
+              &current_ver, sizeof(current_ver));
+
+    nvs_write(&nvs, NVS_KEY_BUILD,
+              &current_build, sizeof(current_build));
+
+    flash_area_close(fa);
+    return 0;
+}
+
+void init_default_values()
 {
 	speed_value = 0;
 	accel_order = 0;

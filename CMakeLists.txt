@@ -21,3 +21,24 @@ target_sources(app PRIVATE ${app_sources})
 target_include_directories(app PRIVATE interface)
 # NORDIC SDK APP END
 
+target_sources(app PRIVATE ${motor_sources})
+
+target_include_directories(app PRIVATE 
+    drivers/motor
+)
+
+# -------- Firmware version (MANUAL) --------
+set(APP_VERSION_MAJOR 1)
+set(APP_VERSION_MINOR 4)
+set(APP_VERSION_PATCH 2)
+
+# -------- Build number (AUTO) --------
+string(TIMESTAMP APP_BUILD_NUMBER "%Y%m%d%H%M%S" UTC)
+
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/app_version.h.in
+  ${CMAKE_CURRENT_BINARY_DIR}/app_version.h
+  @ONLY
+)
+
+target_include_directories(app PRIVATE ${CMAKE_CURRENT_BINARY_DIR})

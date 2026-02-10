@@ -45,3 +45,18 @@ config LVGL_DISPLAY_UPDATE_PERIOD_MS
 	  will reduce the update frequency.
 
 
+menu "Application settings"
+
+config CLEAR_SETTINGS_NEW_BUILD
+    bool "Clear settings on new build"
+    default n
+    help
+      Clear NVS settings when the firmware build number changes.
+
+config CLEAR_SETTINGS_NEW_VERSION
+    bool "Clear settings on new version"
+    default n
+    help
+      Clear NVS settings when major or minor firmware version changes.
+
+endmenu
