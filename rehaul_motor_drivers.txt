@@ -1,0 +1,368 @@
+In Zephyr, the recommended pattern for handling the variations between drivers (different ICs) and boards (different pins) is to purely separate **Hardware Description (Devicetree)** from **Driver Logic (C Code)** using **Device Drivers with Compatible Bindings**.
+
+Here is the architectural pattern for your specific problem:
+
+### The Architecture: 4-Layer Approach
+
+1.  **Application Layer:** Calls a generic API (e.g., `motor_set_speed(dev, 50)`). It has no idea if the underlying logic is using 2 PWMs, 1 PWM + 1 GPIO, or SPI.
+2.  **API Layer (Subsystem):** Defines the common interface (struct of function pointers).
+3.  **Driver Layer:** Implementations (C files) that correspond to specific hardware chips (e.g., TB67H453, L298N).
+4.  **Hardware Description (Devicetree):** Defines which pins are used on which board.
+
+---
+
+### Step 1: Define the API (The "Class")
+Since Zephyr doesn't have a standard "mainline" DC Motor API yet, you define a header file that acts as the abstract base class.
+
+**`zephyr/include/drivers/dc_motor.h`**
+```c
+#include <zephyr/device.h>
+
+/* Define the generic function signature */
+typedef int (*dc_motor_set_speed_t)(const struct device *dev, int speed_percent);
+
+/* The API structure (vtable) */
+struct dc_motor_driver_api {
+    dc_motor_set_speed_t set_speed;
+};
+
+/* The Public Interface function */
+static inline int dc_motor_set_speed(const struct device *dev, int speed) {
+    const struct dc_motor_driver_api *api = 
+        (const struct dc_motor_driver_api *)dev->api;
+    return api->set_speed(dev, speed);
+}
+```
+
+---
+
+### Step 2: Create YAML Bindings (The Requirements)
+You create a YAML file for each **type** of driver chip you support. This tells Zephyr what hardware resources each specific chip needs.
+
+**Driver A: TB67H453 with Dual PWM Mode**
+*Needs 2 PWM channels and a SLEEP GPIO.*
+`dts/bindings/motor/toshiba,tb67h453.yaml`
+```yaml
+description: Toshiba TB67H453 Motor Driver
+compatible: "toshiba,tb67h453"
+include: base.yaml
+
+properties:
+    pwms:
+        required: true
+        type: phandle-array
+        description: Two PWM channels (IN1, IN2)
+    sleep-gpios:
+        required: true
+        type: phandle-array
+        description: Pin connected to SLEEP
+```
+
+**Driver B: Generic H-Bridge (L298N style)**
+*Needs 1 Enable PWM and 2 Direction GPIOs.*
+`dts/bindings/motor/generic,hbridge.yaml`
+```yaml
+description: Generic H-Bridge
+compatible: "generic,hbridge"
+include: base.yaml
+
+properties:
+    pwms:
+        required: true
+        type: phandle-array
+        description: Enable Pin (Speed)
+    dir-gpios:
+        required: true
+        type: phandle-array
+        description: Two discrete GPIOs for direction (IN1, IN2)
+```
+
+---
+
+### Step 3: The Board Overlay (The Pin Mapping)
+This is where you solve the "different boards" problem. You map abstract requirements to physical board pins.
+
+**Board 1 (`nrf52dk_nrf52832.overlay`) - Uses Toshiba**
+```dts
+/ {
+    /* Create an alias so main.c finds it easily */
+    aliases {
+        motor0 = &motor_a;
+    };
+};
+
+&pwm0 {
+    status = "okay";
+    pinctrl-0 = <&pwm0_default>;
+};
+
+/ {
+    motor_a: motor_driver {
+        /* This selects Driver A implementation */
+        compatible = "toshiba,tb67h453"; 
+        
+        /* Map specific hardware resources */
+        pwms = <&pwm0 1 PWM_MSEC(20) PWM_POLARITY_NORMAL>,
+               <&pwm0 2 PWM_MSEC(20) PWM_POLARITY_NORMAL>;
+        sleep-gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
+    };
+};
+```
+
+**Board 2 (`esp32.overlay`) - Uses Generic H-Bridge**
+```dts
+/ {
+    aliases {
+        motor0 = &motor_b; /* Same alias! App code doesn't change. */
+    };
+
+    motor_b: motor_driver_alt {
+        /* This selects Driver B implementation */
+        compatible = "generic,hbridge";
+        
+        /* Different resource types entirely */
+        pwms = <&ledc0 1 ...>;
+        dir-gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>,
+                    <&gpio0 5 GPIO_ACTIVE_HIGH>;
+    };
+};
+```
+
+---
+
+### Step 4: The Driver Implementation (C Code)
+You write two different C files. The Build system picks the right one based on the `compatible` string found in the DeviceTree.
+
+**`drivers/motor/tb67h453.c`**
+```c
+#define DT_DRV_COMPAT toshiba_tb67h453
+
+#include <drivers/dc_motor.h>
+#include <zephyr/drivers/pwm.h>
+#include <zephyr/drivers/gpio.h>
+
+struct tb67h453_config {
+    struct pwm_dt_spec in1;
+    struct pwm_dt_spec in2;
+    struct gpio_dt_spec sleep;
+};
+
+static int tb67h453_set_speed(const struct device *dev, int speed) {
+    const struct tb67h453_config *cfg = dev->config;
+    
+    // LOGIC SPECIFIC TO TOSHIBA
+    // Example: Wake up sleep pin, write PWMs
+    gpio_pin_set_dt(&cfg->sleep, 1);
+    
+    if (speed > 0) {
+        pwm_set_pulse_dt(&cfg->in1, ...); // Set IN1
+        pwm_set_pulse_dt(&cfg->in2, 0);   // Clear IN2
+    }
+    // ... logic handles IN1/IN2 specific method
+    return 0;
+}
+
+static const struct dc_motor_driver_api tb67h453_api = {
+    .set_speed = tb67h453_set_speed,
+};
+
+/* Macro magic to instantiate the driver from Devicetree */
+#define TB67H453_INIT(inst)                                        \
+    static const struct tb67h453_config config_##inst = {          \
+        .in1 = PWM_DT_SPEC_GET_BY_IDX(DT_DRV_INST(inst), 0),      \
+        .in2 = PWM_DT_SPEC_GET_BY_IDX(DT_DRV_INST(inst), 1),      \
+        .sleep = GPIO_DT_SPEC_GET(DT_DRV_INST(inst), sleep_gpios),\
+    };                                                             \
+    DEVICE_DT_INST_DEFINE(inst, NULL, NULL, NULL, &config_##inst,  \
+                          POST_KERNEL, 90, &tb67h453_api);
+
+DT_INST_FOREACH_STATUS_OKAY(TB67H453_INIT)
+```
+
+**`drivers/motor/generic_hbridge.c`**
+```c
+#define DT_DRV_COMPAT generic_hbridge
+
+/* ... imports ... */
+
+struct generic_config {
+    struct pwm_dt_spec speed_pwm;
+    struct gpio_dt_spec dir1;
+    struct gpio_dt_spec dir2;
+};
+
+static int generic_set_speed(const struct device *dev, int speed) {
+    const struct generic_config *cfg = dev->config;
+
+    // LOGIC SPECIFIC TO GENERIC H-BRIDGE
+    // Set digital pins for direction, PWM for speed
+    if (speed > 0) {
+        gpio_pin_set_dt(&cfg->dir1, 1);
+        gpio_pin_set_dt(&cfg->dir2, 0);
+    }
+    pwm_set_pulse_dt(&cfg->speed_pwm, ...);
+    return 0;
+}
+
+/* ... Similar macros, but reading different properties ... */
+```
+
+---
+
+### Step 5: The Application Code (The User)
+The logic in your `main.c` is now 100% agnostic to the driver chip and the board pins.
+
+```c
+#include <drivers/dc_motor.h>
+
+/* Get the device using the Devicetree alias */
+const struct device *motor = DEVICE_DT_GET(DT_ALIAS(motor0));
+
+void main(void) {
+    if (!device_is_ready(motor)) {
+        return;
+    }
+
+    /* 
+     * This calls tb67h453_set_speed on Board A
+     * This calls generic_set_speed on Board B
+     */
+    dc_motor_set_speed(motor, 50); 
+}
+```
+
+---
+
+## CORRECTIONS & CLARIFICATIONS
+
+### CORRECTION 1: CMakeLists.txt Organization (Application Mode)
+
+**WRONG (using kernel-module pattern):**
+```cmake
+# This only works when compiling Zephyr itself, not applications
+zephyr_library()
+zephyr_library_include_directories(...)
+zephyr_library_sources_ifdef(CONFIG_MOTOR_TB67H453 tb67h453.c)
+```
+
+**CORRECT (application-mode build):**
+```cmake
+# In your main CMakeLists.txt, add driver sources directly
+FILE(GLOB motor_sources drivers/motor/*.c)
+target_sources(app PRIVATE ${motor_sources})
+
+# Or selectively include specific drivers:
+target_sources(app PRIVATE 
+    drivers/motor/tb67h453.c
+    drivers/motor/generic_hbridge.c
+)
+
+# Include driver headers
+target_include_directories(app PRIVATE drivers/motor)
+```
+
+**Why the difference?**
+- `zephyr_library()` is for **in-tree kernel modules** (compiling Zephyr itself)
+- `target_sources(app PRIVATE ...)` is for **applications** (your project)
+
+Since you're building an application that uses drivers, not building Zephyr itself, use `target_sources()`.
+
+---
+
+### CORRECTION 2: Driver Files Must Be Explicitly Compiled
+
+**IMPORTANT:** Drivers do NOT auto-compile just because they exist in the `drivers/` folder.
+
+You must:
+
+1. **Add driver C files to your main `CMakeLists.txt`:**
+   ```cmake
+   # /Users/alex/Code/coap_loki_2/CMakeLists.txt
+   target_sources(app PRIVATE 
+       drivers/motor/tb67h453.c
+       drivers/motor/generic_hbridge.c
+   )
+   ```
+
+2. **Verify the `DT_DRV_COMPAT` matches your YAML binding:**
+   ```c
+   // tb67h453.c
+   #define DT_DRV_COMPAT toshiba_tb67h453  // Must match YAML "compatible" field
+   ```
+
+3. **Do NOT use `zephyr_library()` or `add_subdirectory()` for application drivers** — this is only for kernel modules.
+
+---
+
+### CORRECTION 3: Kconfig is Optional for Devicetree-Based Drivers
+
+**Myth:** "You need Kconfig to enable each driver."
+
+**Reality:** If using Zephyr's `DT_INST_FOREACH_STATUS_OKAY()` macro, driver instantiation is **purely devicetree-based**. A driver is instantiated if:
+
+1. A devicetree node exists with `compatible = "toshiba,tb67h453"` (matches your binding)
+2. That node has `status = "okay"` (or omitted, defaults to okay)
+
+Kconfig is **optional** and useful for:
+- Conditional build features (e.g., `CONFIG_MOTOR_LOG_LEVEL`)
+- Hardware validation (e.g., `CONFIG_MOTOR_INIT_PRIORITY`)
+- Optional subsystem enable/disable
+
+But you do NOT need Kconfig entries to instantiate the driver itself.
+
+**Example Kconfig (optional):**
+```kconfig
+# drivers/motor/Kconfig
+menuconfig MOTOR
+    bool "Motor Driver Support"
+    
+if MOTOR
+    config MOTOR_LOG_LEVEL
+        int "Motor Driver Log Level"
+        default 3
+        
+    config MOTOR_INIT_PRIORITY
+        int "Motor Driver Initialization Priority"
+        default 90
+endif
+```
+
+---
+
+### RECOMMENDATION: You're Building a Zephyr Subsystem (Not a Kernel Module)
+
+Your architecture is correct: **a custom Zephyr driver subsystem**.
+
+**Structure:**
+```
+drivers/motor/
+├── CMakeLists.txt              (optional, currently unused)
+├── Kconfig                      (optional, for CONFIG options)
+├── tb67h453.c                   (driver implementation)
+├── generic_hbridge.c            (driver implementation)
+└── motor.h                      (your custom API header)
+
+dts/bindings/motor/
+├── toshiba,tb67h453.yaml       (device binding)
+└── generic,hbridge.yaml        (device binding)
+
+include/drivers/
+└── motor.h                      (public API for applications)
+```
+
+**Benefits of this approach:**
+- Integrates seamlessly with Zephyr's build system
+- Uses Devicetree for hardware configuration (not hardcoded pins)
+- Works with `DT_INST_FOREACH_STATUS_OKAY()` for automatic driver instantiation
+- Reusable across projects and boards
+- No custom kernel module setup needed
+
+This is the **recommended approach** for Zephyr applications requiring custom hardware drivers.
+
+---
+
+### Summary of Benefits
+1.  **Portability:** Changing a pin requires editing *one* line in an overlay file (`.overlay`), not recompiling driver logic.
+2.  **Flexibility:** You can mix and match drivers on the same board. If you have one Toshiba and one L298N motor, define two devicetree nodes with different `compatible` strings.
+3.  **Clean Code:** No `#ifdef BOARD_A` preprocessor spaghetti in your motor logic.
+4.  **Standardized:** Follows Zephyr's standard device driver patterns used throughout the ecosystem.

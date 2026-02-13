@@ -1,0 +1,9 @@
+description: Toshiba TB67H450 Motor Driver
+compatible: "toshiba,tb67h450"
+include: base.yaml
+
+properties:
+    pwms:
+        required: true
+        type: phandle-array
+        description: Two PWM channels (IN1, IN2)

@@ -1,0 +1,6 @@
+zephyr_library()
+zephyr_library_include_directories(${CMAKE_SOURCE_DIR}/src/motors)
+zephyr_library_sources_ifdef(CONFIG_MOTOR_TB67H453 tb67h453.c)
+zephyr_library_sources_ifdef(CONFIG_MOTOR_TB67H450 tb67h450.c)
+zephyr_library_sources_ifdef(CONFIG_MOTOR_DUMMY dummy_motor.c)
+zephyr_library_sources(dummy_motor.c)
