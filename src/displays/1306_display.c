@@ -29,6 +29,8 @@ static lv_obj_t* ipv6_address_label;
 // this flag is used to prevent accessing the display before it is initialized or if the display is not ready/connected
 static bool display_initialized = false;
 
+void display_initRefresh();
+
 // Initialize the display (to be called once before using the update functions)
 bool display_initDisplay() {
     // Check if the display is already initialized
@@ -36,9 +38,9 @@ bool display_initDisplay() {
         LOG_WRN("Display is already initialized");
         return true; // Display is already initialized, no need to reinitialize
     }
-    lv_mem_init(); // Initialize LVGL memory management
+    //lv_mem_init(); // Initialize LVGL memory management
     // Initialize the LVGL library
-    lv_init();
+    // lv_init();
 
     // Initialize the display driver (assuming a Zephyr-based display)
     const struct device* display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));

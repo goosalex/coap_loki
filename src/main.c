@@ -144,7 +144,6 @@ void notify_motion_change()
 }
 
 
-
 void stop_motor()
 {
 	change_speed_directly(0);
@@ -267,10 +266,14 @@ void init_default_values()
 	direction_pattern = 0;
 	speed_notify_enabled = 0;
 	change_pwm_base(1000);
-	int err;
-	int EUI64_LEN = 8;
-	
+
+	dcc_address = 0;
+}
+
+void init_default_name()
+{
 	int id_len;
+	int EUI64_LEN = 8;
 	uint8_t eui64buf[EUI64_LEN];
 	// certainly depends on CONFIG_HWINFO_NRF (or other if other device is chosen) in prj.conf
 	id_len = hwinfo_get_device_id(&eui64buf, EUI64_LEN);
@@ -304,8 +307,7 @@ void init_default_values()
     ble_name[strlen(ble_name)] = '\0';
 
 	strcpy(full_name,ble_name);
-
-	dcc_address = 0;
+	
 }
 
 void display_start(void)
@@ -426,7 +428,7 @@ void load_settings_from_nvm()
 	}
 	if (!settings_initialized_flag) {
 		LOG_INF("Settings have never been initialized, setting defaults\n");
-		init_default_settings();
+		init_default_name();
 		rc = settings_save_subtree("loki");
 		if (rc) {
 			LOG_ERR("Error saving settings to NVM: %d\n", rc);
@@ -518,6 +520,7 @@ void init_display(void)
 }
 
 
+
 int main(void)
 {
 	int err;
@@ -525,17 +528,22 @@ int main(void)
 
 
 	LOG_INF("%s","Startup Information:\n");
-	if (motor_init() != 0 ) {
+	if (loki_motor_init() != 0 ) {
 		LOG_ERR("Motor init failed\n");
 		return -1;
 	}
 
-	init_default_settings();
+	init_and_optionally_clear_nvs();
+	init_default_values();
 
 
 	init_display();
 	display_updateConnectionStatus("Initializing...");
-
+	err = bt_enable(NULL);
+	if (err) {
+		LOG_ERR("Bluetooth enable failed (err %d)\n", err);
+		return -2;
+	}
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		load_settings_from_nvm();
 		err = settings_load();
@@ -598,13 +606,9 @@ int main(void)
 	}
 	LOG_INF("Starting BLE\n");
 	//settings_load_subtree("bt");
-	err = bt_enable(NULL);
-	if (err) {
-		LOG_ERR("Bluetooth enable failed (err %d)\n", err);
-		return -2;
-	}
-	settings_load_subtree("bt");
-	settings_load_subtree("loki");
+
+//	settings_load_subtree("bt");
+//	settings_load_subtree("loki");
 	updateBleShortName(ble_name);	
 	updateBleLongName(full_name);
 

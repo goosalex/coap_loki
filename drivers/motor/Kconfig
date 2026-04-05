@@ -1,0 +1,41 @@
+menuconfig DC_MOTOR
+    bool "DC Motor drivers"
+    default y
+    help
+      Enable DC motor driver support
+
+if DC_MOTOR
+
+config MOTOR_INIT_PRIORITY
+    int "Motor init priority"
+    default 90
+    help
+      Device driver initialization priority.
+
+config MOTOR_LOG_LEVEL
+    int "Motor Log Level"
+    default 3
+    help
+      Set the log level for motor drivers.
+
+config MOTOR_TB67H453
+    bool "Toshiba TB67H453 Motor Driver"
+    default n
+    depends on PWM
+    help
+      Enable support for Toshiba TB67H453 driver (PWM + Sleep Pin)
+
+config MOTOR_TB67H450
+    bool "Toshiba TB67H450 Motor Driver"
+    default n
+    depends on PWM
+    help
+      Enable support for Toshiba TB67H450 driver (Pure PWM H-Bridge)
+
+config MOTOR_DUMMY
+    bool "Dummy Motor Driver"
+    default y if !MOTOR_TB67H453 && !MOTOR_TB67H450
+    help
+      Enable support for Dummy Motor driver (No-op)
+
+endif

@@ -4,6 +4,10 @@
 #include <zephyr/logging/log.h>
 
 
+#if !DT_HAS_ALIAS(motor0)
+#error "Devicetree alias 'motor0' is not defined. Please add it to your board overlay."
+#endif
+const struct device *motor_dev = DEVICE_DT_GET(DT_ALIAS(motor0));
 
  uint16_t pwm_base;
  uint16_t pwm_period;
@@ -14,6 +18,14 @@
  uint16_t dcc_address;
 
 LOG_MODULE_REGISTER(logging_logic, LOG_LEVEL_DBG);
+
+int loki_motor_init(void) {
+    if (!device_is_ready(motor_dev)) {
+        LOG_ERR("Motor device not ready");
+        return -1;
+    }
+    return 0;
+}
 
  void change_pwm_base(uint16_t new_base)
 {
@@ -82,8 +94,10 @@ void re_apply_acceleration(struct k_timer *timer_id){
 
 void change_speed_directly(uint8_t new_state){
 
-	LOG_DBG("PWM is %u * %u / %u ns\n",  new_state, pwm_pulse, pwm_period);
-    motor_speed_change_pwm(pwm_period , new_state * pwm_pulse);
+    // Convert 0-255 to 0-100%
+    int percent = (new_state * 100) / SPEED_STEPS;
+	LOG_DBG("Speed %u (%d%%)\n",  new_state, percent);
+    motor_set_speed(motor_dev, percent);
 
 	speed_value = new_state;
 	display_updateDirectionAndSpeed(direction_pattern, speed_value);
@@ -99,7 +113,7 @@ void change_direction(uint8_t new_pattern){
 			return;
 		}
 		LOG_DBG ("changeing Direction from %u to %u", direction_pattern, new_pattern);
-        motor_change_direction(new_pattern);
+        motor_set_direction(motor_dev, new_pattern);
 		display_updateDirectionAndSpeed(new_pattern, speed_value);
 		direction_pattern = new_pattern;
 	} else {

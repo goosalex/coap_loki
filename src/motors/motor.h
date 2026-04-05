@@ -1,33 +1,47 @@
 /*
-	Header file for motor driver files 
-*/
-#include <stdio.h>
+ * Copyright (c) 2024
+ *
+ * Generic Motor Driver API (Zephyr Driver Model)
+ */
 
-#ifndef FUNC_H_
-#define FUNC_H_
+#ifndef SRC_MOTORS_MOTOR_H_
+#define SRC_MOTORS_MOTOR_H_
 
-extern struct device *motor_gpio_dev;
+#include <zephyr/device.h>
+#include <zephyr/sys/errno_private.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-extern int motor_init();
+/* Define the generic function signature */
+typedef int (*motor_set_speed_t)(const struct device *dev, int speed_percent);
+typedef int (*motor_set_direction_t)(const struct device *dev, uint8_t direction);
 
-
-// Function to set speed directly
-extern int motor_speed_change_pwm(uint32_t pwm_period, uint32_t pwm_pulse);
-
-// set direction GPIO pins
-extern void motor_change_direction(uint8_t new_pattern);
-
-
-// Optional: Motor capabilities structure
-struct motor_capabilities {
-    uint8_t supports_pwm;
-    uint8_t supports_direction;
-    uint8_t max_channels;
+/* The API structure (vtable) */
+struct motor_driver_api {
+    motor_set_speed_t set_speed;
+    motor_set_direction_t set_direction;
 };
 
-extern const struct motor_capabilities* motor_get_capabilities(void);
+/* The Public Interface function */
+static inline int motor_set_speed(const struct device *dev, int speed) {
+    if (!dev) return -ENODEV;
+    const struct motor_driver_api *api = 
+        (const struct motor_driver_api *)dev->api;
+    return api->set_speed(dev, speed);
+}
 
+static inline int motor_set_direction(const struct device *dev, uint8_t direction) {
+    if (!dev) return -ENODEV;
+    const struct motor_driver_api *api = 
+        (const struct motor_driver_api *)dev->api;
+    if (!api->set_direction) return -ENOTSUP;
+    return api->set_direction(dev, direction);
+}
 
+#ifdef __cplusplus
+}
+#endif
 
-#endif /* FUNC_H_ */
+#endif /* SRC_MOTORS_MOTOR_H_ */

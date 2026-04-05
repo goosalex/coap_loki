@@ -1,0 +1,8 @@
+board:
+  name: minewsemi_custom1
+  vendor: trencitos
+  socs:
+  - name: nrf54l15
+    variants:
+    - name: xip
+      cpucluster: cpuflpr
