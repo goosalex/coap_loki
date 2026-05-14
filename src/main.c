@@ -47,8 +47,13 @@
 
 #include "motors/motor.h"
 // BEGIN Settings and conditional NVM initialization related imports
+#if defined(CONFIG_NVS)
 #include <zephyr/fs/nvs.h>
-// will eventually become #include <zephyr/storage/nvs/nvs.h>
+#elif defined(CONFIG_ZMS)
+#include <zephyr/fs/zms.h>
+#else
+#error "Either CONFIG_NVS or CONFIG_ZMS must be enabled"
+#endif
 #include <zephyr/storage/flash_map.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
@@ -107,7 +112,11 @@ static bool semver_major_minor_changed(const struct app_version *a,
     return (a->major != b->major) || (a->minor != b->minor);
 }
 
+#if defined(CONFIG_NVS)
 static struct nvs_fs nvs;
+#elif defined(CONFIG_ZMS)
+static struct zms_fs nvs;
+#endif
 // END SEttings and NVM
 
 uint8_t speed_notify_enabled = 0;
@@ -166,7 +175,7 @@ BUILD_ASSERT(
 #define STORAGE_NODE DT_CHOSEN(zephyr_storage)
 
 BUILD_ASSERT(
-    DT_REG_SIZE(STORAGE_NODE) >= 0x4000,
+    DT_REG_SIZE(STORAGE_NODE) >= 0x2000,
     "zephyr,storage partition too small"
 );
 
@@ -190,7 +199,7 @@ int init_and_optionally_clear_nvs(void)
     bool clear = false;
 
     /* Open NVS flash area */
-    err = flash_area_open(FIXED_PARTITION_ID(nvs_storage), &fa);
+    err = flash_area_open(DT_FIXED_PARTITION_ID(STORAGE_NODE), &fa);
     if (err) {
         return err;
     }
@@ -201,21 +210,35 @@ int init_and_optionally_clear_nvs(void)
     nvs.sector_size = fa->fa_size / 4;
     nvs.sector_count = 4;
 
+#if defined(CONFIG_NVS)
     err = nvs_mount(&nvs);
+#elif defined(CONFIG_ZMS)
+    err = zms_mount(&nvs);
+#endif
     if (err) {
         flash_area_close(fa);
         return err;
     }
 
     /* Read stored values (absence is OK) */
+#if defined(CONFIG_NVS)
     err = nvs_read(&nvs, NVS_KEY_VERSION,
                    &stored_ver, sizeof(stored_ver));
+#elif defined(CONFIG_ZMS)
+    err = zms_read(&nvs, NVS_KEY_VERSION,
+                   &stored_ver, sizeof(stored_ver));
+#endif
     if (err < 0) {
         stored_ver = (struct app_version){0};
     }
 
+#if defined(CONFIG_NVS)
     err = nvs_read(&nvs, NVS_KEY_BUILD,
                    &stored_build, sizeof(stored_build));
+#elif defined(CONFIG_ZMS)
+    err = zms_read(&nvs, NVS_KEY_BUILD,
+                   &stored_build, sizeof(stored_build));
+#endif
     if (err < 0) {
         stored_build = 0;
     }
@@ -239,9 +262,13 @@ int init_and_optionally_clear_nvs(void)
         clear = true;
     }
 
-    /* Clear NVS if required */
+    /* Clear storage if required */
     if (clear) {
+#if defined(CONFIG_NVS)
         err = nvs_clear(&nvs);
+#elif defined(CONFIG_ZMS)
+        err = zms_clear(&nvs);
+#endif
         if (err) {
             flash_area_close(fa);
             return err;
@@ -249,11 +276,17 @@ int init_and_optionally_clear_nvs(void)
     }
 
     /* Always store current version & build */
+#if defined(CONFIG_NVS)
     nvs_write(&nvs, NVS_KEY_VERSION,
               &current_ver, sizeof(current_ver));
-
     nvs_write(&nvs, NVS_KEY_BUILD,
               &current_build, sizeof(current_build));
+#elif defined(CONFIG_ZMS)
+    zms_write(&nvs, NVS_KEY_VERSION,
+              &current_ver, sizeof(current_ver));
+    zms_write(&nvs, NVS_KEY_BUILD,
+              &current_build, sizeof(current_build));
+#endif
 
     flash_area_close(fa);
     return 0;

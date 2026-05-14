@@ -1,0 +1,5 @@
+/ {
+    chosen {
+        zephyr,storage = &storage_partition;
+    };
+};
