@@ -12,6 +12,18 @@
 // You can also visit the nRF DeviceTree extension documentation at https://docs.nordicsemi.com/bundle/nrf-connect-vscode/page/guides/ncs_configure_app.html#devicetree-support-in-the-extension
 
 / {
+    aliases {
+        motor0 = &motor_null;
+    };
+
+    chosen {
+		zephyr,entropy = &rng;
+		zephyr,storage = &storage_partition;
+	};
+
+    motor_null: motor_driver_alt {
+        compatible = "generic,dummy-motor";
+    };
 };
 
  
