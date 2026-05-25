@@ -33,6 +33,7 @@
 
     chosen {
 		zephyr,entropy = &rng;
+        		zephyr,storage = &storage_partition;
 	};
 
     motor_null: motor_driver_alt {
