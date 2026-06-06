@@ -33,6 +33,8 @@
 
 #include <zephyr/drivers/pwm.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <inttypes.h>
 
 #include <zephyr/net/openthread.h>
 #include <openthread/thread.h>
@@ -45,9 +47,11 @@
 #include "main_ot_utils.h"
 #include "main_loki.h"
 
+#include "displays/main_display.h"
+
 #include "motors/motor.h"
 // BEGIN Settings and conditional NVM initialization related imports
-#if defined(CONFIG_NVS)
+#ifdef CONFIG_NVS
 #include <zephyr/fs/nvs.h>
 #elif defined(CONFIG_ZMS)
 #include <zephyr/fs/zms.h>
@@ -55,6 +59,7 @@
 #error "Either CONFIG_NVS or CONFIG_ZMS must be enabled"
 #endif
 #include <zephyr/storage/flash_map.h>
+#endif
 #include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/settings/settings.h>
@@ -62,7 +67,7 @@
 #include "app_version.h"
 // END Settings and NVM related imports
 
-#ifdef CONFIG_LVGL
+#if defined(CONFIG_LVGL) && defined(CONFIG_DISPLAY)
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/display.h>
@@ -73,7 +78,6 @@
 #include <zephyr/kernel.h>
 #include <lvgl_input_device.h>
 // Start Display related includes
-#include "displays/main_display.h"
 #ifdef CONFIG_SSD1306
 	//#include "displays/1306_display.c"
 #endif
@@ -112,10 +116,8 @@ static bool semver_major_minor_changed(const struct app_version *a,
     return (a->major != b->major) || (a->minor != b->minor);
 }
 
-#if defined(CONFIG_NVS)
+#ifdef CONFIG_NVS
 static struct nvs_fs nvs;
-#elif defined(CONFIG_ZMS)
-static struct zms_fs nvs;
 #endif
 // END SEttings and NVM
 
@@ -158,31 +160,26 @@ void stop_motor()
 	change_speed_directly(0);
 }
 
-/* ---- Build-time checks ---- */
-
-BUILD_ASSERT(
-    DT_HAS_CHOSEN(zephyr_storage),
-    "Missing chosen { zephyr,storage = ... }"
-);
-
-/*
-BUILD_ASSERT(
-    DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_storage), fixed_partitions),
-    "zephyr,storage is not a fixed partition"
-);
-*/
-
+#if defined(CONFIG_NVS) && DT_HAS_CHOSEN(zephyr_storage)
+#define LOKI_HAS_NVS_STORAGE 1
 #define STORAGE_NODE DT_CHOSEN(zephyr_storage)
 
 BUILD_ASSERT(
-    DT_REG_SIZE(STORAGE_NODE) >= 0x2000,
-    "zephyr,storage partition too small"
+	DT_REG_SIZE(STORAGE_NODE) >= 0x4000,
+	"zephyr,storage partition too small"
 );
+#else
+#define LOKI_HAS_NVS_STORAGE 0
+#endif
 
 /* ---- NVS ---- */
 
 int init_and_optionally_clear_nvs(void)
 {
+#if !LOKI_HAS_NVS_STORAGE
+	LOG_WRN("NVS init skipped: missing CONFIG_NVS or chosen zephyr,storage");
+	return 0;
+#else
     const struct flash_area *fa;
     int err;
 
@@ -193,13 +190,13 @@ int init_and_optionally_clear_nvs(void)
     };
 
     struct app_version stored_ver = {0};
-    uint32_t stored_build = 0;
-    uint32_t current_build = APP_BUILD_NUMBER;
+	uint64_t stored_build = 0;
+	uint64_t current_build = APP_BUILD_NUMBER;
 
     bool clear = false;
 
     /* Open NVS flash area */
-    err = flash_area_open(DT_FIXED_PARTITION_ID(STORAGE_NODE), &fa);
+	err = flash_area_open(FIXED_PARTITION_ID(STORAGE_NODE), &fa);
     if (err) {
         return err;
     }
@@ -247,7 +244,7 @@ int init_and_optionally_clear_nvs(void)
     if (IS_ENABLED(CONFIG_CLEAR_SETTINGS_NEW_VERSION) &&
         semver_major_minor_changed(&stored_ver, &current_ver)) {
 
-        printk("Version change %u.%u → %u.%u\n",
+		 printk("Version change %u.%u -> %u.%u\n",
                stored_ver.major, stored_ver.minor,
                current_ver.major, current_ver.minor);
         clear = true;
@@ -257,7 +254,7 @@ int init_and_optionally_clear_nvs(void)
     if (IS_ENABLED(CONFIG_CLEAR_SETTINGS_NEW_BUILD) &&
         stored_build != current_build) {
 
-        printk("Build change %u → %u\n",
+		 printk("Build change %" PRIu64 " -> %" PRIu64 "\n",
                stored_build, current_build);
         clear = true;
     }
@@ -290,6 +287,7 @@ int init_and_optionally_clear_nvs(void)
 
     flash_area_close(fa);
     return 0;
+#endif
 }
 
 void init_default_values()
@@ -309,7 +307,7 @@ void init_default_name()
 	int EUI64_LEN = 8;
 	uint8_t eui64buf[EUI64_LEN];
 	// certainly depends on CONFIG_HWINFO_NRF (or other if other device is chosen) in prj.conf
-	id_len = hwinfo_get_device_id(&eui64buf, EUI64_LEN);
+	id_len = hwinfo_get_device_id(eui64buf, EUI64_LEN);
 	if (id_len < 0) {
 		LOG_ERR("Failed to get EUI64 from HWINFO (err %d)\n", id_len);
 		return;
@@ -517,7 +515,7 @@ void modify_full_name(char *buf, uint16_t len)
 int modify_short_name(char *buf, uint16_t len)
 {
 	if (strncmp(buf, ble_name, len) == 0) {
-		return;
+		return 0;
 	} else {
 		LOG_INF("Changing short name to %s\n", (buf));
 		re_register_coap_service(openthread_get_default_instance(), &short_name_coap_service, buf, SRP_SHORTNAME_SERVICE);
@@ -536,8 +534,8 @@ int modify_short_name(char *buf, uint16_t len)
 	} else {
 		LOG_INF("Saved short name to NVM: %s\n", ble_name);
 	}
-	LOG_INF("Change of advertised short name will happen on next disconnect\n", ble_name);
-	return updateBleShortName(&ble_name);
+	LOG_INF("Change of advertised short name will happen on next disconnect\n");
+	return updateBleShortName(ble_name);
 }
 
 
@@ -545,7 +543,7 @@ int modify_short_name(char *buf, uint16_t len)
 
 void init_display(void)
 {
-#ifdef CONFIG_LVGL
+#if defined(CONFIG_LVGL) && defined(CONFIG_DISPLAY)
 	is_display_enabled = true;
  	display_initDisplay();
 	 display_start();
@@ -620,7 +618,7 @@ int main(void)
 			}
 		if (dcc_address != 0) {
 			LOG_INF("DCC Address set to %d\n", dcc_address);
-			if (&dcc_name_coap_service != NULL) {
+			if (dcc_name_coap_service.mService.mInstanceName != NULL) {
 				LOG_INF("Service %s already registered as %d, freeing first", SRP_DCC_SERVICE, dcc_address);
 				otSrpClientBuffersFreeService(openthread_get_default_instance(), &dcc_name_coap_service);
 			}

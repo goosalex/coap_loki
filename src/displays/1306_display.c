@@ -56,10 +56,10 @@ bool display_initDisplay() {
     lv_task_handler(); // This call is executed once, by virtue of main.c, so no wrapping as WORK is needed.
 
     lv_obj_t* scr = lv_scr_act();
-    const u_int8_t line_height = 8; // Height of each line in pixels
-    const u_int8_t line_count = 4; // Number of lines to display
-    const u_int8_t screen_width = 128; // Width of the screen in pixels
-    const u_int8_t screen_height = 64; // Height of the screen in pixels
+    const uint8_t line_height = 8; // Height of each line in pixels
+    const uint8_t line_count = 4; // Number of lines to display
+    const uint8_t screen_width = 128; // Width of the screen in pixels
+    const uint8_t screen_height = 64; // Height of the screen in pixels
 
     // Create and position labels for each line
     connection_status_label = lv_label_create(scr);
@@ -190,7 +190,7 @@ void display_updateOTConnectionStatus(const char* status) {
 }
 
 // Updates the display with the current direction and speed
-void display_updateDirectionAndSpeed(u_int8_t direction_pattern, u_int8_t speed) {
+void display_updateDirectionAndSpeed(uint8_t direction_pattern, uint8_t speed) {
     if (!display_initialized) {
         printk("Display not initialized, skipping update\n");
         return; // Display not initialized, skip the update
