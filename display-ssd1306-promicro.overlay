@@ -17,6 +17,7 @@
 		group1 {
 			psels = <NRF_PSEL(TWIM_SDA, 0, 8)>,
 				<NRF_PSEL(TWIM_SCL, 0, 6)>;
+            bias-pull-up;
 		};
 	};
 
@@ -24,6 +25,7 @@
 		group1 {
 			psels = <NRF_PSEL(TWIM_SDA, 0, 8)>,
 				<NRF_PSEL(TWIM_SCL, 0, 6)>;
+            bias-pull-up;
 			low-power-enable;
 		};
 	};
@@ -34,9 +36,9 @@
 };
 
 &i2c0 {
-	compatible = "nordic,nrf-twi";
+	compatible = "nordic,nrf-twim";
 	status = "okay";
-	clock-frequency = <I2C_BITRATE_FAST>;
+	clock-frequency = <I2C_BITRATE_STANDARD>;
 	pinctrl-0 = <&i2c0_default>;
 	pinctrl-1 = <&i2c0_sleep>;
 	pinctrl-names = "default", "sleep";
@@ -45,7 +47,7 @@
         compatible = "solomon,ssd1306fb";
         reg = <0x3c>;
         label = "SSD1306";
-        height = <32>; // Change to <64> for 64-pixel height displays
+        height = <64>; // Change to <64> for 64-pixel height displays
         width  = <128>;
         segment-offset  = <0>;
         page-offset     = <0>;
@@ -57,4 +59,7 @@
         com-sequential;
 
     };
+};
+&uart0 {
+	status = "disabled";
 };

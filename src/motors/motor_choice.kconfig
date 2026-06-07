@@ -16,6 +16,11 @@ config MOTOR_DRIVER_TB67
     help
       Use TB67 motor driver implementation
 
+config MOTOR_DRIVER_TB67H453
+    bool "TB67H453 Motor Driver"
+    help
+      Use Toshiba TB67H453FNG motor driver implementation
+
 config MOTOR_DRIVER_DRV8871  
     bool "DRV8871 Motor Driver"
     help

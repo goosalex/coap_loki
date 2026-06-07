@@ -21,10 +21,19 @@
 #define MOTOR1PIN 13
 #define MOTOR2PIN 15
 /{
-         
+
+    aliases {
+        motor0 = &motor_null;
+    };
+
     chosen {
 		zephyr,entropy = &rng;
+		zephyr,storage = &storage_partition;
 	};
+
+    motor_null: motor_driver_alt {
+        compatible = "generic,dummy-motor";
+    };
 
     motorpwms: motorpwms {
 		compatible = "pwm-leds";

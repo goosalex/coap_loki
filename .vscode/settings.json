@@ -1,3 +1,11 @@
 {
-    "C_Cpp.configurationWarnings": "disabled"
+    "C_Cpp.configurationWarnings": "disabled",
+    "files.associations": {
+        "main_display.h": "c",
+        "conn.h": "c",
+        "display.h": "c"
+    },
+    "nrf-connect.debugging.bindings": {
+        "${workspaceFolder}/build_dongle/coap_loki_2": "Launch coap_loki_2"
+    }
 }

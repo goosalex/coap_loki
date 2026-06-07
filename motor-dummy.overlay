@@ -1,0 +1,13 @@
+/ {
+    aliases {
+        motor0 = &motor_null; /* Same alias! App code doesn't change. */
+    };
+
+    motor_null: motor_driver_alt {
+        /* This selects Driver B implementation */
+        compatible = "generic,dummy-motor";
+        
+        /* Different resource types entirely */
+
+    };
+};

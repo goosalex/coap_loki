@@ -448,7 +448,7 @@ void start_advertising(struct k_work *work) {
 		.id = BT_ID_DEFAULT,
 		.sid = 0,
 		.secondary_max_skip = 0,
-		.options = 0,
+		.options = BT_LE_ADV_OPT_CONN,
 		.interval_min = BT_GAP_ADV_FAST_INT_MIN_2,
 		.interval_max = BT_GAP_ADV_FAST_INT_MAX_2,
 		.peer = NULL,

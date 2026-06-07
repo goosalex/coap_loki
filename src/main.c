@@ -33,6 +33,8 @@
 
 #include <zephyr/drivers/pwm.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <inttypes.h>
 
 #include <zephyr/net/openthread.h>
 #include <openthread/thread.h>
@@ -45,10 +47,27 @@
 #include "main_ot_utils.h"
 #include "main_loki.h"
 
+#include "displays/main_display.h"
+
 #include "motors/motor.h"
+// BEGIN Settings and conditional NVM initialization related imports
+#ifdef CONFIG_NVS
+#include <zephyr/fs/nvs.h>
+#elif defined(CONFIG_ZMS)
+#include <zephyr/fs/zms.h>
+#else
+#error "Either CONFIG_NVS or CONFIG_ZMS must be enabled"
+#endif
+#include <zephyr/storage/flash_map.h>
+#endif
+#include <zephyr/kernel.h>
+#include <zephyr/sys/util.h>
+#include <zephyr/settings/settings.h>
 
+#include "app_version.h"
+// END Settings and NVM related imports
 
-#ifdef CONFIG_LVGL
+#if defined(CONFIG_LVGL) && defined(CONFIG_DISPLAY)
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/display.h>
@@ -59,7 +78,6 @@
 #include <zephyr/kernel.h>
 #include <lvgl_input_device.h>
 // Start Display related includes
-#include "displays/main_display.h"
 #ifdef CONFIG_SSD1306
 	//#include "displays/1306_display.c"
 #endif
@@ -81,6 +99,27 @@
 
 
 LOG_MODULE_REGISTER(loki_main, CONFIG_COAP_SERVER_LOG_LEVEL);
+
+// BEGIN Settings and conditional NVM initialization related code. To be moved to separate file when stable
+#define NVS_KEY_VERSION   0x10
+#define NVS_KEY_BUILD     0x11
+
+struct app_version {
+    uint8_t major;
+    uint8_t minor;
+    uint8_t patch;
+};
+
+static bool semver_major_minor_changed(const struct app_version *a,
+                                       const struct app_version *b)
+{
+    return (a->major != b->major) || (a->minor != b->minor);
+}
+
+#ifdef CONFIG_NVS
+static struct nvs_fs nvs;
+#endif
+// END SEttings and NVM
 
 uint8_t speed_notify_enabled = 0;
 bool is_display_enabled = false;
@@ -116,28 +155,159 @@ void notify_motion_change()
 }
 
 
-
 void stop_motor()
 {
 	change_speed_directly(0);
 }
 
+#if defined(CONFIG_NVS) && DT_HAS_CHOSEN(zephyr_storage)
+#define LOKI_HAS_NVS_STORAGE 1
+#define STORAGE_NODE DT_CHOSEN(zephyr_storage)
 
+BUILD_ASSERT(
+	DT_REG_SIZE(STORAGE_NODE) >= 0x4000,
+	"zephyr,storage partition too small"
+);
+#else
+#define LOKI_HAS_NVS_STORAGE 0
+#endif
 
-void init_default_settings()
+/* ---- NVS ---- */
+
+int init_and_optionally_clear_nvs(void)
+{
+#if !LOKI_HAS_NVS_STORAGE
+	LOG_WRN("NVS init skipped: missing CONFIG_NVS or chosen zephyr,storage");
+	return 0;
+#else
+    const struct flash_area *fa;
+    int err;
+
+    struct app_version current_ver = {
+        .major = APP_VERSION_MAJOR,
+        .minor = APP_VERSION_MINOR,
+        .patch = APP_VERSION_PATCH,
+    };
+
+    struct app_version stored_ver = {0};
+	uint64_t stored_build = 0;
+	uint64_t current_build = APP_BUILD_NUMBER;
+
+    bool clear = false;
+
+    /* Open NVS flash area */
+	err = flash_area_open(FIXED_PARTITION_ID(STORAGE_NODE), &fa);
+    if (err) {
+        return err;
+    }
+
+    /* Configure NVS filesystem */
+    nvs.flash_device = fa->fa_dev;
+    nvs.offset = fa->fa_off;
+    nvs.sector_size = fa->fa_size / 4;
+    nvs.sector_count = 4;
+
+#if defined(CONFIG_NVS)
+    err = nvs_mount(&nvs);
+#elif defined(CONFIG_ZMS)
+    err = zms_mount(&nvs);
+#endif
+    if (err) {
+        flash_area_close(fa);
+        return err;
+    }
+
+    /* Read stored values (absence is OK) */
+#if defined(CONFIG_NVS)
+    err = nvs_read(&nvs, NVS_KEY_VERSION,
+                   &stored_ver, sizeof(stored_ver));
+#elif defined(CONFIG_ZMS)
+    err = zms_read(&nvs, NVS_KEY_VERSION,
+                   &stored_ver, sizeof(stored_ver));
+#endif
+    if (err < 0) {
+        stored_ver = (struct app_version){0};
+    }
+
+#if defined(CONFIG_NVS)
+    err = nvs_read(&nvs, NVS_KEY_BUILD,
+                   &stored_build, sizeof(stored_build));
+#elif defined(CONFIG_ZMS)
+    err = zms_read(&nvs, NVS_KEY_BUILD,
+                   &stored_build, sizeof(stored_build));
+#endif
+    if (err < 0) {
+        stored_build = 0;
+    }
+
+    /* Version-based wipe (SemVer MAJOR.MINOR only) */
+    if (IS_ENABLED(CONFIG_CLEAR_SETTINGS_NEW_VERSION) &&
+        semver_major_minor_changed(&stored_ver, &current_ver)) {
+
+		 printk("Version change %u.%u -> %u.%u\n",
+               stored_ver.major, stored_ver.minor,
+               current_ver.major, current_ver.minor);
+        clear = true;
+    }
+
+    /* Build-based wipe */
+    if (IS_ENABLED(CONFIG_CLEAR_SETTINGS_NEW_BUILD) &&
+        stored_build != current_build) {
+
+		 printk("Build change %" PRIu64 " -> %" PRIu64 "\n",
+               stored_build, current_build);
+        clear = true;
+    }
+
+    /* Clear storage if required */
+    if (clear) {
+#if defined(CONFIG_NVS)
+        err = nvs_clear(&nvs);
+#elif defined(CONFIG_ZMS)
+        err = zms_clear(&nvs);
+#endif
+        if (err) {
+            flash_area_close(fa);
+            return err;
+        }
+    }
+
+    /* Always store current version & build */
+#if defined(CONFIG_NVS)
+    nvs_write(&nvs, NVS_KEY_VERSION,
+              &current_ver, sizeof(current_ver));
+    nvs_write(&nvs, NVS_KEY_BUILD,
+              &current_build, sizeof(current_build));
+#elif defined(CONFIG_ZMS)
+    zms_write(&nvs, NVS_KEY_VERSION,
+              &current_ver, sizeof(current_ver));
+    zms_write(&nvs, NVS_KEY_BUILD,
+              &current_build, sizeof(current_build));
+#endif
+
+    flash_area_close(fa);
+    return 0;
+#endif
+}
+
+void init_default_values()
 {
 	speed_value = 0;
 	accel_order = 0;
 	direction_pattern = 0;
 	speed_notify_enabled = 0;
 	change_pwm_base(1000);
-	int err;
-	int EUI64_LEN = 8;
-	
+
+	dcc_address = 0;
+}
+
+void init_default_name()
+{
 	int id_len;
+	int EUI64_LEN = 8;
 	uint8_t eui64buf[EUI64_LEN];
 	// certainly depends on CONFIG_HWINFO_NRF (or other if other device is chosen) in prj.conf
-	id_len = hwinfo_get_device_id(&eui64buf, EUI64_LEN);
+	id_len = hwinfo_get_device_id(eui64buf, EUI64_LEN);
 	if (id_len < 0) {
 		LOG_ERR("Failed to get EUI64 from HWINFO (err %d)\n", id_len);
 		return;
@@ -168,8 +338,7 @@ void init_default_settings()
     ble_name[strlen(ble_name)] = '\0';
 
 	strcpy(full_name,ble_name);
-
-	dcc_address = 0;
+	
 }
 
 void display_start(void)
@@ -290,7 +459,7 @@ void load_settings_from_nvm()
 	}
 	if (!settings_initialized_flag) {
 		LOG_INF("Settings have never been initialized, setting defaults\n");
-		init_default_settings();
+		init_default_name();
 		rc = settings_save_subtree("loki");
 		if (rc) {
 			LOG_ERR("Error saving settings to NVM: %d\n", rc);
@@ -346,7 +515,7 @@ void modify_full_name(char *buf, uint16_t len)
 int modify_short_name(char *buf, uint16_t len)
 {
 	if (strncmp(buf, ble_name, len) == 0) {
-		return;
+		return 0;
 	} else {
 		LOG_INF("Changing short name to %s\n", (buf));
 		re_register_coap_service(openthread_get_default_instance(), &short_name_coap_service, buf, SRP_SHORTNAME_SERVICE);
@@ -365,8 +534,8 @@ int modify_short_name(char *buf, uint16_t len)
 	} else {
 		LOG_INF("Saved short name to NVM: %s\n", ble_name);
 	}
-	LOG_INF("Change of advertised short name will happen on next disconnect\n", ble_name);
-	return updateBleShortName(&ble_name);
+	LOG_INF("Change of advertised short name will happen on next disconnect\n");
+	return updateBleShortName(ble_name);
 }
 
 
@@ -374,12 +543,13 @@ int modify_short_name(char *buf, uint16_t len)
 
 void init_display(void)
 {
-#ifdef CONFIG_LVGL
+#if defined(CONFIG_LVGL) && defined(CONFIG_DISPLAY)
 	is_display_enabled = true;
  	display_initDisplay();
 	 display_start();
 #endif
 }
+
 
 
 int main(void)
@@ -389,17 +559,22 @@ int main(void)
 
 
 	LOG_INF("%s","Startup Information:\n");
-	if (motor_init() != 0 ) {
+	if (loki_motor_init() != 0 ) {
 		LOG_ERR("Motor init failed\n");
 		return -1;
 	}
 
-	init_default_settings();
+	init_and_optionally_clear_nvs();
+	init_default_values();
 
 
 	init_display();
 	display_updateConnectionStatus("Initializing...");
-
+	err = bt_enable(NULL);
+	if (err) {
+		LOG_ERR("Bluetooth enable failed (err %d)\n", err);
+		return -2;
+	}
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		load_settings_from_nvm();
 		err = settings_load();
@@ -443,7 +618,7 @@ int main(void)
 			}
 		if (dcc_address != 0) {
 			LOG_INF("DCC Address set to %d\n", dcc_address);
-			if (&dcc_name_coap_service != NULL) {
+			if (dcc_name_coap_service.mService.mInstanceName != NULL) {
 				LOG_INF("Service %s already registered as %d, freeing first", SRP_DCC_SERVICE, dcc_address);
 				otSrpClientBuffersFreeService(openthread_get_default_instance(), &dcc_name_coap_service);
 			}
@@ -462,13 +637,9 @@ int main(void)
 	}
 	LOG_INF("Starting BLE\n");
 	//settings_load_subtree("bt");
-	err = bt_enable(NULL);
-	if (err) {
-		LOG_ERR("Bluetooth enable failed (err %d)\n", err);
-		return -2;
-	}
-	settings_load_subtree("bt");
-	settings_load_subtree("loki");
+
+//	settings_load_subtree("bt");
+//	settings_load_subtree("loki");
 	updateBleShortName(ble_name);	
 	updateBleLongName(full_name);
 

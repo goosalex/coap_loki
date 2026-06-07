@@ -29,6 +29,8 @@ static lv_obj_t* ipv6_address_label;
 // this flag is used to prevent accessing the display before it is initialized or if the display is not ready/connected
 static bool display_initialized = false;
 
+void display_initRefresh();
+
 // Initialize the display (to be called once before using the update functions)
 bool display_initDisplay() {
     // Check if the display is already initialized
@@ -36,9 +38,9 @@ bool display_initDisplay() {
         LOG_WRN("Display is already initialized");
         return true; // Display is already initialized, no need to reinitialize
     }
-    lv_mem_init(); // Initialize LVGL memory management
+    //lv_mem_init(); // Initialize LVGL memory management
     // Initialize the LVGL library
-    lv_init();
+    // lv_init();
 
     // Initialize the display driver (assuming a Zephyr-based display)
     const struct device* display_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
@@ -54,10 +56,10 @@ bool display_initDisplay() {
     lv_task_handler(); // This call is executed once, by virtue of main.c, so no wrapping as WORK is needed.
 
     lv_obj_t* scr = lv_scr_act();
-    const u_int8_t line_height = 8; // Height of each line in pixels
-    const u_int8_t line_count = 4; // Number of lines to display
-    const u_int8_t screen_width = 128; // Width of the screen in pixels
-    const u_int8_t screen_height = 64; // Height of the screen in pixels
+    const uint8_t line_height = 8; // Height of each line in pixels
+    const uint8_t line_count = 4; // Number of lines to display
+    const uint8_t screen_width = 128; // Width of the screen in pixels
+    const uint8_t screen_height = 64; // Height of the screen in pixels
 
     // Create and position labels for each line
     connection_status_label = lv_label_create(scr);
@@ -83,16 +85,9 @@ bool display_initDisplay() {
     return true;
 }
 
-#if (CONFIG_LVGL_DISPLAY_UPDATE_PERIOD_MS > 0 )
-
-// Mutex to protect access to LVGL functions
-#include <zephyr/sys/mutex.h>
-// This mutex is used to ensure that LVGL functions are not called from multiple threads simultaneously
-// This is important because LVGL is not thread-safe and can cause issues if accessed concurrently
-// It is used in the display_updateConnectionStatus, display_updateBTConnectionStatus, display_updateOTConnectionStatus,
-// display_updateDirectionAndSpeed, display_updateName, and display_updateIPv6Address functions 
-// to ensure that only one thread can access LVGL functions at a time
-// This is especially important when using the display in a multi-threaded environment, such as with Zephyr's work queues
+#if (CONFIG_LVGL_DISPLAY_UPDATE_PERIOD_MS == 0)
+#error "CONFIG_LVGL_DISPLAY_UPDATE_PERIOD_MS must be > 0. A value of 0 used to route lv_task_handler() through the system workqueue, which overflows its 2 KB stack on LVGL draw paths (e.g. lv_draw_label_iterate_characters)."
+#endif
 
 #include <zephyr/sys/mutex.h>
 static struct k_mutex lvgl_mutex;
@@ -132,44 +127,9 @@ void display_initRefresh() {
 void display_lock() {
     k_mutex_lock(&lvgl_mutex, K_FOREVER);
 }
-// Function to unlock the mutex after accessing LVGL functions
 void display_unlock() {
     k_mutex_unlock(&lvgl_mutex);
 }
-
-#else
-
-
-void display_initRefresh() {
-    // No mutex initialization needed if CONFIG_LVGL_DISPLAY_UPDATE_PERIOD_MS is not defined
-    // This is a no-op function to maintain the same interface
-    // LVGL functions can be called directly without locking in this case 
-}
-
-void updateDisplay(struct k_work_delayable *work) {
-    // Call the LVGL task handler to refresh the display
-    if (!display_initialized) {
-        return; // Display not initialized, skip the update
-    }
-    lv_task_handler();
-}
-
-
-// Function to update the display (to be called periodically)
-K_WORK_DELAYABLE_DEFINE(display_update_work, updateDisplay);
-
-
-void display_lock() {
-    // No mutex locking needed if CONFIG_LVGL_DISPLAY_UPDATE_PERIOD_MS is not defined
-    // This is a no-op function to maintain the same interface
-    // LVGL functions can be called directly without locking in this case
-}
-// Function to unlock the mutex after accessing LVGL functions
-void display_unlock() {
-    k_work_submit(&display_update_work); // Schedule the display update  
-}
-
-#endif
 
 
 
@@ -230,7 +190,7 @@ void display_updateOTConnectionStatus(const char* status) {
 }
 
 // Updates the display with the current direction and speed
-void display_updateDirectionAndSpeed(u_int8_t direction_pattern, u_int8_t speed) {
+void display_updateDirectionAndSpeed(uint8_t direction_pattern, uint8_t speed) {
     if (!display_initialized) {
         printk("Display not initialized, skipping update\n");
         return; // Display not initialized, skip the update

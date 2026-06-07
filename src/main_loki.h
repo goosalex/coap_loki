@@ -28,6 +28,7 @@ extern uint8_t speed_notify_enabled;
  void change_speed_directly(uint8_t new_state);
  void speed_set_acceleration(int8_t new_state);
 void notify_motion_change();
+int loki_motor_init(void);
 void re_apply_acceleration(struct k_timer *timer_id);
 void apply_current_acceleration();
 void change_direction(uint8_t new_pattern);
