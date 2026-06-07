@@ -14,6 +14,7 @@ FILE(GLOB app_sources src/*.c src/displays/*.c src/motors/.c)
 FILE(GLOB motor_sources drivers/motor/*.c)
 
 
+
 # NORDIC SDK APP START
 target_sources(app PRIVATE ${app_sources})
 

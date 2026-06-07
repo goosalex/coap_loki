@@ -1,6 +1,6 @@
+#ifdef CONFIG_SSD1306
 #ifdef CONFIG_DISPLAY
 #include "main_display.h"
-#ifdef CONFIG_SSD1306
 
 #ifndef CONFIG_LVGL
 #error "LVGL is not enabled in the configuration"
