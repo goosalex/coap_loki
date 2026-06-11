@@ -605,16 +605,20 @@ int main(void)
 			} else {
 				display_updateOTConnectionStatus("+S+CoAP");
 				LOG_INF("CoAP initialized\n");
-				if (short_name_coap_service.mService.mInstanceName != NULL) {
-					LOG_INF("Service %s already registered as %s, freeing first", SRP_SHORTNAME_SERVICE, ble_name);
-					otSrpClientBuffersFreeService(openthread_get_default_instance(), &short_name_coap_service);
-				}
-				if (long_name_coap_service.mService.mInstanceName != NULL) {
+				/* short_name is already registered by init_srp() above —
+				 * we only need to add the long-name service here. The
+				 * boot path used to re-register short_name too, but that
+				 * was a vestige of the per-TU duplicate bug (TODO/01 §1.6/§1.7). */
+				if (long_name_coap_service != NULL) {
 					LOG_INF("Service %s already registered as %s, freeing first", SRP_LONGNAME_SERVICE, full_name);
-					otSrpClientBuffersFreeService(openthread_get_default_instance(), &long_name_coap_service);
+					otSrpClientBuffersFreeService(openthread_get_default_instance(), long_name_coap_service);
+					long_name_coap_service = NULL;
 				}
-				register_coap_service(openthread_get_default_instance(), full_name, SRP_LONGNAME_SERVICE);
-				register_coap_service(openthread_get_default_instance(), ble_name, SRP_SHORTNAME_SERVICE);
+				long_name_coap_service = register_coap_service(
+					openthread_get_default_instance(), full_name, SRP_LONGNAME_SERVICE);
+				if (long_name_coap_service == NULL) {
+					LOG_ERR("Failed to register long-name SRP service");
+				}
 			}
 		/* Boot path: dcc_address was loaded from NVM by load_settings_from_nvm().
 		 * The helper handles the "unset" (0) case and frees stale entries. */

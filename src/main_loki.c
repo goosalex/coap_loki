@@ -139,10 +139,10 @@ void register_dcc_service(void)
 
 	/* Tear down any previous registration so SRP slots are not leaked when
 	 * the DCC address is changed at runtime. */
-	if (dcc_name_coap_service.mService.mInstanceName != NULL) {
+	if (dcc_name_coap_service != NULL) {
 		LOG_INF("Freeing previous DCC SRP entry");
-		otSrpClientBuffersFreeService(p, &dcc_name_coap_service);
-		memset(&dcc_name_coap_service, 0, sizeof(dcc_name_coap_service));
+		otSrpClientBuffersFreeService(p, dcc_name_coap_service);
+		dcc_name_coap_service = NULL;
 	}
 
 	if (dcc_address == 0) {
@@ -159,7 +159,7 @@ void register_dcc_service(void)
 		LOG_ERR("Failed to allocate DCC SRP service entry");
 		return;
 	}
-	dcc_name_coap_service = *entry;
+	dcc_name_coap_service = entry;
 
 	bindUdpHandler(p, &loconet_udp_socket, SRP_LCN_PORT,
 		       on_udp_loconet_receive);

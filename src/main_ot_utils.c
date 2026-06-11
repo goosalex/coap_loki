@@ -48,6 +48,14 @@ int enable_thread();
 // global variables
 otUdpSocket loconet_udp_socket;
 
+/* SRP buffer entry pointers — single definitions for the externs declared in
+ * main_ot_utils.h. NULL at startup (BSS); holds the pool pointer returned by
+ * otSrpClientBuffersAllocateService while a registration is live. */
+otSrpClientBuffersServiceEntry *short_name_coap_service;
+otSrpClientBuffersServiceEntry *long_name_coap_service;
+otSrpClientBuffersServiceEntry *dcc_name_coap_service;
+otSrpClientBuffersServiceEntry *loconet_udp_service;
+
 // local variables
 bool ot_is_enabled = false;
 bool ot_is_commissioned = false;
@@ -410,17 +418,23 @@ void init_srp() {
 		}
 
 		
-		if ( (&short_name_coap_service != NULL) && (&short_name_coap_service.mService)
-			&& strcmp(short_name_coap_service.mService.mInstanceName, ble_name) == 0 )
+		if (short_name_coap_service != NULL &&
+		    strcmp(short_name_coap_service->mService.mInstanceName, ble_name) == 0)
 		{
 			LOG_INF("Service %s already registered as %s", SRP_SHORTNAME_SERVICE, ble_name);
 		} else {
+			/* Drop any stale pool entry first so we don't leak a slot when
+			 * init_srp re-runs on address changes with a renamed loco. */
+			if (short_name_coap_service != NULL) {
+				otSrpClientBuffersFreeService(p_instance, short_name_coap_service);
+				short_name_coap_service = NULL;
+			}
 			entry = register_coap_service(p_instance, ble_name, SRP_SHORTNAME_SERVICE);
 			if (entry == NULL) {
 				LOG_ERR("Cannot allocate new service entry under %s", SRP_SHORTNAME_SERVICE);
 			} else {
 				LOG_INF("Service %s registered as %s", SRP_SHORTNAME_SERVICE, ble_name);
-				short_name_coap_service = *entry;
+				short_name_coap_service = entry;
 			}
 		}
 		LOG_INF("Attempt to enable auto start mode");
@@ -452,37 +466,46 @@ otSrpClientBuffersServiceEntry *register_coap_service( otInstance *p_instance , 
 	return register_service(p_instance, instance_name, service_name, OT_DEFAULT_COAP_PORT);
 }
 
-int re_register_coap_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry *entry, char *instance_name, char *service_name) {
+int re_register_coap_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry **entry, char *instance_name, char *service_name) {
 	return re_register_service(p_instance, entry, instance_name, service_name, OT_DEFAULT_COAP_PORT);
 }
 
-int re_register_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry *entry, char *instance_name, char *service_name, int port) {
+/* Free the caller's existing SRP pool entry (if any) and allocate a fresh one
+ * with the given instance/service name. The caller's pointer (*entry) is
+ * rebound to the new pool address so subsequent free/lookup calls work.
+ * Pre-1.7 this function took an entry-by-pointer and reassigned a *local*
+ * copy — the caller's variable was never updated. */
+int re_register_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry **entry, char *instance_name, char *service_name, int port) {
 	otError error;
 	char *instance_name_buf;
 	char *service_name_buf;
 	uint16_t size;
 
-	if (entry != NULL) {
-		error = otSrpClientRemoveService(p_instance, &entry->mService);
+	if (*entry != NULL) {
+		error = otSrpClientRemoveService(p_instance, &(*entry)->mService);
 		if (error != OT_ERROR_NONE) {
 			LOG_ERR("Cannot remove service: %s", otThreadErrorToString(error));
 			return -1;
 		}
-		otSrpClientBuffersFreeService(p_instance, entry);
-		entry = NULL;
+		otSrpClientBuffersFreeService(p_instance, *entry);
+		*entry = NULL;
 	}
-	entry = otSrpClientBuffersAllocateService(p_instance);
+	*entry = otSrpClientBuffersAllocateService(p_instance);
+	if (*entry == NULL) {
+		LOG_ERR("Cannot allocate new SRP service entry");
+		return -1;
+	}
 	instance_name_buf =
-		otSrpClientBuffersGetServiceEntryInstanceNameString(entry, &size);
+		otSrpClientBuffersGetServiceEntryInstanceNameString(*entry, &size);
 	memcpy(instance_name_buf, instance_name, strlen(instance_name) + 1);
 
 	service_name_buf =
-		otSrpClientBuffersGetServiceEntryServiceNameString(entry, &size);		
+		otSrpClientBuffersGetServiceEntryServiceNameString(*entry, &size);
 	memcpy(service_name_buf, service_name, strlen(service_name) + 1);
 
-	entry->mService.mPort = port;
+	(*entry)->mService.mPort = port;
 
-	error = otSrpClientAddService(p_instance, &entry->mService);
+	error = otSrpClientAddService(p_instance, &(*entry)->mService);
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Cannot re-add service: %s", otThreadErrorToString(error));
 		return -1;

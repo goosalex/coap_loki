@@ -197,3 +197,153 @@ or commissioned-but-network-down), BLE stays on indefinitely. A CoAP
   Thread down so the detach path resumes BLE.
 - The boot-time always-on window means a freshly rebooted commissioned loco is
   briefly BLE-visible. Acceptable; matches the "always reachable to grab" intent.
+
+---
+
+## 1.6 SRP buffer entries are per-TU duplicates — **applied**
+
+**Was.** [../src/main_ot_utils.h:18-27](../src/main_ot_utils.h#L18-L27)
+declared the SRP buffer storage with `static` linkage **in the header**:
+
+```c
+static otSrpClientBuffersServiceEntry short_name_coap_service;
+static otSrpClientBuffersServiceEntry long_name_coap_service;
+static otSrpClientBuffersServiceEntry dcc_name_coap_service;
+static otSrpClientBuffersServiceEntry loconet_udp_service;
+```
+
+`static` at file scope gives internal linkage, so **every translation unit that
+includes the header gets its own private copy** of each variable — they are not
+the same memory.
+
+**Why it matters.** Each `.c` file that touches these symbols is operating on
+separate storage:
+
+- `init_srp()` in [../src/main_ot_utils.c](../src/main_ot_utils.c) updates *its
+  own* `short_name_coap_service`.
+- `main()` in [../src/main.c](../src/main.c) — and now `register_dcc_service()`
+  in [../src/main_loki.c](../src/main_loki.c) after [1.2](#12-dcc-address-written-over-ble-is-volatile--applied) —
+  operate on *their own* copies.
+
+The code works today only because each TU happens to keep its own lifecycle
+internally consistent (`init_srp` manages the short-name entry; `main_loki.c`
+manages the DCC entry; the long-name path in `main.c` re-allocates rather than
+sharing). The moment cross-TU bookkeeping becomes necessary — e.g. a SRP
+rename triggered in one file expected to be visible in another — the bug bites
+silently. It also multiplies the RAM footprint of these buffers by the number
+of including TUs (currently 3).
+
+**Now.** The header has `extern` declarations
+([../src/main_ot_utils.h:21-29](../src/main_ot_utils.h#L21-L29)) and the single
+definitions live in `main_ot_utils.c` alongside the existing
+`otUdpSocket loconet_udp_socket`
+([../src/main_ot_utils.c:54-57](../src/main_ot_utils.c#L54-L57)). Zero-init in
+BSS preserves the `mInstanceName != NULL` "is something registered?" idiom
+already used at call sites.
+
+**Audit findings.** Making the variables actually shared exposed two latent
+issues that the per-TU duplicates had been masking — both pre-existing, neither
+introduced by the §1.6 change:
+
+1. **Short-name service was being registered twice at boot.** `init_srp()` in
+   [../src/main_ot_utils.c](../src/main_ot_utils.c) registers the short-name
+   service. The `main()` boot block in [../src/main.c:608-617](../src/main.c#L608-L617)
+   then *also* calls `register_coap_service(..., ble_name, SRP_SHORTNAME_SERVICE)`.
+   Before §1.6 the redundancy was invisible (each TU thought its own copy was
+   empty). After §1.6 the redundancy is now visible via the
+   `"freeing first"` log line firing on every boot — and the underlying
+   double-registration with the SRP server is now obvious.
+2. **`otSrpClientBuffersFreeService()` is being called with the wrong pointer.**
+   `register_service()` copies the entry contents into the static via
+   `short_name_coap_service = *entry;` — so `&short_name_coap_service` is the
+   address of a *snapshot*, not a pointer into the OT buffer pool returned by
+   `otSrpClientBuffersAllocateService`. The OT API contract requires the
+   original pool pointer. See [1.7](#17-srp-entries-are-stored-as-snapshot-copies-not-pool-pointers)
+   for the fix.
+
+**Verification.**
+
+- [ ] Build + boot a commissioned loco; expect to see the "freeing first" log
+      now fire for the short-name service (was previously silent).
+- [ ] BLE-driven DCC change still persists across reboot and DNS-SD discovery
+      tracks the change (1.2 smoke test, but now against shared storage).
+- [ ] BLE-driven short-name rename: `modify_short_name` →
+      `re_register_coap_service` and `init_srp()`'s view of
+      `short_name_coap_service` now agree. Confirm the rename surfaces in
+      DNS-SD on the next attach (this is the case that silently diverged
+      before).
+- [ ] Memory: each of the four entries now has one storage location instead of
+      three — a small but measurable RAM win.
+
+---
+
+## 1.7 Unregistering SRP services silently fails (slot leak) — **applied**
+
+**The picture.** OpenThread's SRP client has a small, fixed-size cabinet of
+slots for service registrations. When the firmware "registers a service" it
+reserves a slot and hands back a numbered ticket — that ticket is how you
+later say "take it off slot 3, please". Lose the ticket, and OpenThread has
+no way to know which slot you meant.
+
+**Was.** After registering, the firmware copied the *contents* of OpenThread's
+slot into a global of its own (`short_name_coap_service = *entry;`) and then
+threw the ticket away. At teardown it passed the address of that copy to
+`otSrpClientBuffersFreeService` — but the API expects the original ticket,
+not a transcription of what was on it. OpenThread didn't recognise the
+address, quietly did nothing, and the slot stayed occupied. Every rename
+silently leaked one more slot of the fixed pool; the
+`if (… != NULL) { free; }` idiom that read like real teardown wasn't.
+
+This came out of the audit for
+[1.6](#16-srp-buffer-entries-are-per-tu-duplicates--applied) — the per-TU
+duplicate variables had been masking it.
+
+**Now.** The four globals hold the *ticket* itself: a pointer into the SRP
+buffer pool, not a copy of what it points at. NULL means "no current
+registration":
+
+- [main_ot_utils.h:23-31](../src/main_ot_utils.h#L23-L31) — the four entries
+  are now pointer-typed (`extern otSrpClientBuffersServiceEntry *short_name_coap_service;`
+  etc.), with matching single definitions in
+  [main_ot_utils.c:54-57](../src/main_ot_utils.c#L54-L57).
+- [`re_register_service` / `re_register_coap_service`](../src/main_ot_utils.c#L469-L478)
+  now take `**entry`. They free the old pool entry, allocate a new one, and
+  **rebind the caller's variable**. Pre-1.7 the function only updated a local
+  copy — every callsite happily believed the entry had been refreshed when it
+  hadn't.
+- [`init_srp` short-name block](../src/main_ot_utils.c#L421-L438) — the
+  tautological `&foo != NULL` check is gone; the snapshot copy
+  (`= *entry`) is now a pointer save (`= entry`); and there's a real
+  free-before-re-register so a renamed loco doesn't leak a slot when
+  `init_srp` re-runs on IP/multicast change events.
+- [`register_dcc_service`](../src/main_loki.c#L142-L162) — pointer null-check,
+  pool pointer passed to `Free` (no longer the address of a stack copy),
+  null on teardown, pointer save on register.
+- [`main()` boot](../src/main.c#L608-L621) — **deleted** the redundant short-
+  name re-registration. `init_srp()` already registers it; the duplicate was
+  visible only because [1.6](#16-srp-buffer-entries-are-per-tu-duplicates--applied)
+  unified the storage. The long-name path now captures the returned pointer
+  into `long_name_coap_service` instead of dropping it on the floor.
+- Callsites that already passed `&long_name_coap_service` to `re_register_*`
+  ([main.c:498](../src/main.c#L498), [main.c:520](../src/main.c#L520)) needed
+  no change — with the type flip, `&foo` is now `T**` which matches the new
+  signature.
+
+**Verification.**
+
+- [ ] Repeated short-name renames via BLE no longer exhaust the SRP pool. Pre-
+      fix: roughly `CONFIG_OPENTHREAD_SRP_CLIENT_BUFFERS_SERVICES` renames
+      before new registrations start failing. Post-fix: indefinite.
+- [ ] At boot, the `"freeing first"` log line for the **short-name** service no
+      longer appears (the redundant boot-block path is gone). The long-name
+      line still appears only on a real re-register.
+- [ ] DCC change via BLE: `dns-sd -B _loconet._loki_loconet._udp` on the OTBR
+      shows the old DCC instance disappearing before the new one appears,
+      instead of accumulating duplicates.
+- [ ] Long-name change once the CoAP `/name` endpoint is wired up
+      ([02 §2.1](02-coap-fixes.md#21-name-resource-is-never-registered))
+      surfaces in DNS-SD on the next attach instead of silently leaking a
+      slot.
+
+**Depends on:** [1.6](#16-srp-buffer-entries-are-per-tu-duplicates--applied)
+(done).
