@@ -240,21 +240,25 @@ if (flags & OT_CHANGED_THREAD_ROLE) {
 		case OT_DEVICE_ROLE_CHILD:
 			printk("OT new state  Childr\n");
 			display_updateOTConnectionStatus("+Child");
-			break;			
+			ble_lifecycle_on_thread_attached();
+			break;
 		case OT_DEVICE_ROLE_ROUTER:
 			printk("OT new state Router\n");
 			display_updateOTConnectionStatus("+Router");
-			break;		
+			ble_lifecycle_on_thread_attached();
+			break;
 		case OT_DEVICE_ROLE_LEADER:
 			LOG_INF("Thread Role: Child/Router/Leader\n");
 			display_updateOTConnectionStatus("+Leader");
+			ble_lifecycle_on_thread_attached();
 			break;
 
 		case OT_DEVICE_ROLE_DISABLED:
 		case OT_DEVICE_ROLE_DETACHED:
 		default:
 			LOG_INF("Thread Role: Disabled/Detached\n");
-			// deactivate_provisionig();			
+			// deactivate_provisionig();
+			ble_lifecycle_on_thread_detached();
 			break;
 		}
 	}
@@ -556,7 +560,7 @@ const bool mLinkSecurityEnabled = false;
 int sendOtUdpReply(otInstance *aInstance, otUdpSocket *sock, otMessageInfo *origMsgInfo, otMessage *msg){
 	int ret;
 	otIp6Address ip6adr;
-	u_int16_t port;
+	uint16_t port;
 	char *buf[OT_IP6_ADDRESS_STRING_SIZE];
 	ip6adr = origMsgInfo->mPeerAddr;
 	otIp6AddressToString(&ip6adr,buf,OT_IP6_ADDRESS_STRING_SIZE);

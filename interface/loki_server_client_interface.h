@@ -21,5 +21,6 @@ enum direction_command {
 #define DIRECTION_URI_PATH "direction"
 #define STOP_URI_PATH "stop"
 #define NAME_URI_PATH "name"
+#define BLE_RECOVERY_URI_PATH "ble-recovery"
 
 #endif

@@ -49,6 +49,19 @@ config LVGL_DISPLAY_UPDATE_PERIOD_MS
 	  A lower value will result in more frequent updates, while a higher value
 	  will reduce the update frequency.
 
+config LOKI_BLE_OFF_AFTER_ATTACH_MINUTES
+	int "Minutes to keep BLE advertising after a successful Thread attach"
+	default 5
+	range 0 1440
+	help
+	  After the loco successfully attaches to a Thread network (role becomes
+	  CHILD, ROUTER or LEADER), BLE advertising is stopped after this many
+	  minutes. If the Thread role goes back to DETACHED/DISABLED before then,
+	  the pending stop is cancelled and advertising continues. Set to 0 to
+	  disable the feature entirely (BLE advertising stays on indefinitely).
+	  A CoAP PUT to /ble-recovery resumes advertising for another window of
+	  the same length.
+
 
 menu "Application settings"
 

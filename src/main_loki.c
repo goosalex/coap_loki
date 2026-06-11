@@ -129,7 +129,7 @@ void define_light(){
    color: on: 0xFF......, off: 0x00...... , rgb: 0xA0RRGGBB 
 
 */
-void set_lights(u_int8_t side, u_int32_t color, u_int8_t pattern){
+void set_lights(uint8_t side, uint32_t color, uint8_t pattern){
 	LOG_DBG("noop");
 }
 
@@ -183,8 +183,8 @@ void on_udp_loconet_receive(void *aContext, otMessage *aMessage, const otMessage
     int  length;
 	char string[OT_IP6_ADDRESS_STRING_SIZE];
 	const int OPC_WR_SL_DATA = 0xEF;
-	u_int8_t ADR,ADR2;
-	u_int16_t ADR16;
+	uint8_t ADR,ADR2;
+	uint16_t ADR16;
 
 	otIp6AddressToString(&aMessageInfo->mPeerAddr, string, sizeof(string));
     LOG_INF("%d bytes from %s", otMessageGetLength(aMessage) - otMessageGetOffset(aMessage), string);

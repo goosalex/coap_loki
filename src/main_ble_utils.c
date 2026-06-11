@@ -10,6 +10,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/logging/log.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
@@ -251,7 +252,7 @@ static ssize_t write_dcc(struct bt_conn *conn,
 			   const struct bt_gatt_attr *attr, const void *buf,
 			   uint16_t len, uint16_t offset, uint8_t flags)
 {
-	u_int16_t value;
+	uint16_t value;
 	if (len < sizeof(uint16_t)) {
 		value = *(uint8_t *)buf;
 	} else {
@@ -376,8 +377,13 @@ static void disconnected_cb(struct bt_conn *conn, uint8_t reason)
 	}
 	// The names might have changed, so update the advertising data
 	// bt_submit_refresh_advertising_data_work();
-	// After disconnect, advertising might not be active
-	bt_submit_start_advertising_work();
+	// After disconnect, advertising might not be active — but only resume
+	// if the lifecycle controller still wants us to advertise. Once Thread
+	// has been attached long enough for ble_stop_handler to fire, we leave
+	// BLE off until Thread detaches or /ble-recovery is invoked.
+	if (atomic_get(&ble_should_advertise)) {
+		bt_submit_start_advertising_work();
+	}
 }
 
 static struct bt_conn_cb conn_callbacks = {
@@ -453,7 +459,12 @@ void start_advertising(struct k_work *work) {
 		.interval_max = BT_GAP_ADV_FAST_INT_MAX_2,
 		.peer = NULL,
 	};
-  
+
+  if (!atomic_get(&ble_should_advertise)) {
+	LOG_DBG("start_advertising skipped: BLE intentionally off");
+	return;
+  }
+
   err = bt_le_adv_start(&adv_param, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
   if (err) {
 	LOG_ERR("Advertising failed to start (err %d)\n", err);
@@ -465,6 +476,73 @@ void start_advertising(struct k_work *work) {
   
 }
 K_WORK_DEFINE(start_advertising_work, start_advertising);
+
+/* -- BLE advertising lifecycle controller ------------------------------------
+ * Default state on boot is "advertise". On a successful Thread attach the
+ * stop work is scheduled for CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES, after
+ * which advertising is halted. A Thread detach cancels the pending stop and
+ * resumes advertising. A CoAP PUT to /ble-recovery (see loki_coap_utils)
+ * forces a fresh window. Setting the Kconfig value to 0 disables the feature.
+ */
+
+static void ble_stop_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	if (!atomic_get(&ble_should_advertise)) {
+		return; /* already stopped, or recovery flipped intent back on */
+	}
+	LOG_INF("Thread attached for >%d min, stopping BLE advertising",
+		CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES);
+	atomic_set(&ble_should_advertise, 0);
+	int err = bt_le_adv_stop();
+	if (err && err != -EALREADY) {
+		LOG_WRN("bt_le_adv_stop returned %d", err);
+	}
+	display_updateBTConnectionStatus("off");
+}
+static K_WORK_DELAYABLE_DEFINE(ble_stop_work, ble_stop_handler);
+
+void ble_lifecycle_on_thread_attached(void)
+{
+	if (CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES == 0) {
+		return; /* feature disabled */
+	}
+	LOG_INF("Thread attached; BLE advertising will stop in %d min",
+		CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES);
+	k_work_reschedule(&ble_stop_work,
+			  K_MINUTES(CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES));
+}
+
+void ble_lifecycle_on_thread_detached(void)
+{
+	int was_pending = k_work_cancel_delayable(&ble_stop_work);
+	atomic_val_t prev = atomic_set(&ble_should_advertise, 1);
+	if (prev == 0) {
+		LOG_INF("Thread detached; resuming BLE advertising "
+			"(stop-timer %s)",
+			was_pending > 0 ? "was pending" : "not pending");
+		bt_submit_start_advertising_work();
+	} else if (was_pending > 0) {
+		LOG_INF("Thread detached; cancelled pending BLE stop");
+	}
+}
+
+void ble_lifecycle_force_recovery(void)
+{
+	if (CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES == 0) {
+		LOG_INF("BLE recovery requested but feature is disabled");
+		return;
+	}
+	LOG_INF("BLE recovery requested; (re-)opening advertising window for "
+		"%d min", CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES);
+	atomic_val_t prev = atomic_set(&ble_should_advertise, 1);
+	if (prev == 0) {
+		bt_submit_start_advertising_work();
+	}
+	k_work_reschedule(&ble_stop_work,
+			  K_MINUTES(CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES));
+}
+/* ---------------------------------------------------------------------------*/
 
  char *getBleLongName() {
   char *name = bt_get_name();

@@ -19,8 +19,19 @@
 void bt_submit_start_advertising_work();
 void bt_submit_refresh_advertising_data_work();
 
+static atomic_t ble_should_advertise = ATOMIC_INIT(1);
 
 extern void bt_notify_speed(void);
 extern void bt_register(void);
 extern int bt_ready(void);
+
+/* BLE advertising lifecycle controller.
+ * Drives the "BLE off after a successful Thread attach" behavior governed by
+ * CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES. Called from the OpenThread state
+ * change callback and from the /ble-recovery CoAP resource.
+ */
+void ble_lifecycle_on_thread_attached(void);
+void ble_lifecycle_on_thread_detached(void);
+void ble_lifecycle_force_recovery(void);
+
 #endif /* MAIN_LOKI_BLE_H */

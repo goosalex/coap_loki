@@ -31,7 +31,7 @@ struct server_context {
 	speed_request_callback_t on_direction_request;
 	stop_request_t on_stop_request;
 	name_set_request_callback_t on_name_request;
-	
+	ble_recovery_request_callback_t on_ble_recovery_request;
 };
 
 static struct server_context srv_context = {
@@ -41,6 +41,7 @@ static struct server_context srv_context = {
 	.on_direction_request = NULL,
 	.on_stop_request = NULL,
 	.on_name_request = NULL,
+	.on_ble_recovery_request = NULL,
 };
 
 
@@ -78,6 +79,16 @@ static otCoapResource stop_resource = {
 /**@brief Definition of CoAP resources for name*/
 static otCoapResource name_resource = {
 	.mUriPath = NAME_URI_PATH,
+	.mHandler = NULL,
+	.mContext = NULL,
+	.mNext = NULL,
+};
+/**@brief Definition of CoAP resource for re-opening the BLE recovery window.
+ * Any non-confirmable request reopens advertising for
+ * CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES; ignored if that feature is off.
+ */
+static otCoapResource ble_recovery_resource = {
+	.mUriPath = BLE_RECOVERY_URI_PATH,
 	.mHandler = NULL,
 	.mContext = NULL,
 	.mNext = NULL,
@@ -482,6 +493,20 @@ static void name_request_handler(void *context, otMessage *message,
 	srv_context.on_name_request(buf, len);
 }
 
+static void ble_recovery_request_handler(void *context, otMessage *message,
+					  const otMessageInfo *message_info)
+{
+	ARG_UNUSED(context);
+	ARG_UNUSED(message);
+	ARG_UNUSED(message_info);
+
+	LOG_INF("Received BLE recovery request");
+
+	if (srv_context.on_ble_recovery_request) {
+		srv_context.on_ble_recovery_request();
+	}
+}
+
 static void coap_default_handler(void *context, otMessage *message,
 				 const otMessageInfo *message_info)
 {
@@ -517,7 +542,8 @@ int loki_coap_init(
 		accel_request_callback_t on_acceleration_request,
 		speed_request_callback_t on_direction_request,
 		stop_request_t on_stop_request,
-		name_set_request_callback_t on_name_request)
+		name_set_request_callback_t on_name_request,
+		ble_recovery_request_callback_t on_ble_recovery_request)
 	{
 	otError error;
 
@@ -544,17 +570,21 @@ int loki_coap_init(
 	stop_resource.mHandler = stop_request_handler;
 	name_resource.mContext = srv_context.ot;
 	name_resource.mHandler = name_request_handler;
+	ble_recovery_resource.mContext = srv_context.ot;
+	ble_recovery_resource.mHandler = ble_recovery_request_handler;
 
 	otCoapSetDefaultHandler(srv_context.ot, coap_default_handler, NULL);
 	otCoapAddResource(srv_context.ot, &speed_resource);
 	otCoapAddResource(srv_context.ot, &acceleration_resource);
 	otCoapAddResource(srv_context.ot, &direction_resource);
 	otCoapAddResource(srv_context.ot, &stop_resource);
-	
+	otCoapAddResource(srv_context.ot, &ble_recovery_resource);
+
 	srv_context.on_speed_request = on_speed_request;
 	srv_context.on_acceleration_request = on_acceleration_request;
 	srv_context.on_direction_request = on_direction_request;
 	srv_context.on_stop_request = on_stop_request;
+	srv_context.on_ble_recovery_request = on_ble_recovery_request;
 
 	error = otCoapStart(srv_context.ot, COAP_PORT);
 	if (error != OT_ERROR_NONE) {

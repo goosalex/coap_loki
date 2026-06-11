@@ -59,7 +59,6 @@
 #error "Either CONFIG_NVS or CONFIG_ZMS must be enabled"
 #endif
 #include <zephyr/storage/flash_map.h>
-#endif
 #include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/settings/settings.h>
@@ -599,7 +598,8 @@ int main(void)
 			speed_set_acceleration,
 			change_direction,
 			stop_motor,
-			modify_full_name
+			modify_full_name,
+			ble_lifecycle_force_recovery
 			) != 0) {
 				LOG_ERR("CoAP init failed\n");			
 			} else {

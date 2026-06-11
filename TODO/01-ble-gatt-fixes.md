@@ -114,29 +114,66 @@ new_name[len] = '\0';
 
 ---
 
-## 1.5 BLE never turns off after provisioning (product decision)
+## 1.5 BLE off after successful Thread attach — **applied**
 
-**Problem.** `main()` enables BLE and starts advertising unconditionally at the
-end of startup ([../src/main.c:463-485](../src/main.c#L463-L485)), even when the
-loco is already commissioned. The stated design is "BLE while unprovisioned,
-CoAP once joined".
+**Decision.** Option B from the original sketch: keep the boot-time advertise so
+recovery is always possible, but stop advertising once Thread has actually
+attached for a configurable grace period. If attach never happens (no dataset,
+or commissioned-but-network-down), BLE stays on indefinitely. A CoAP
+`/ble-recovery` endpoint re-opens the window from a connected client.
 
-**Why it matters.** Power draw, attack surface, and a second always-open control
-channel after the loco is on the mesh.
+**Mechanism (now in tree).**
 
-**Options.**
+- `CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES` ([../Kconfig](../Kconfig)),
+  default **5**, range `0..1440`. Setting to `0` disables the feature.
+- Atomic intent flag `ble_should_advertise` in
+  [../src/main_ble_utils.c](../src/main_ble_utils.c), gating both the
+  `start_advertising` work and the post-disconnect restart in `disconnected_cb`.
+- A `K_WORK_DELAYABLE` (`ble_stop_work`) scheduled when Thread attaches; on fire
+  it calls `bt_le_adv_stop()` (existing connections survive — only new advertising
+  is halted).
+- Three exported entry points in [../src/main_ble_utils.h](../src/main_ble_utils.h):
+  - `ble_lifecycle_on_thread_attached()` — schedule the stop.
+  - `ble_lifecycle_on_thread_detached()` — cancel pending stop, resume advertising.
+  - `ble_lifecycle_force_recovery()` — re-open a fresh window (CoAP entry point).
+- Hooks fire from `on_thread_state_changed` in
+  [../src/main_ot_utils.c](../src/main_ot_utils.c) (CHILD/ROUTER/LEADER →
+  attached; DETACHED/DISABLED → detached).
+- The CoAP escape hatch lives at URI path `ble-recovery` (`BLE_RECOVERY_URI_PATH`
+  in [../interface/loki_server_client_interface.h](../interface/loki_server_client_interface.h)),
+  registered through a new `on_ble_recovery_request` callback added to
+  `loki_coap_init()` in [../src/loki_coap_utils.c](../src/loki_coap_utils.c).
+  `main()` wires it to `ble_lifecycle_force_recovery`.
 
-- **A — Off when commissioned (matches stated intent).** Wrap the BLE start in
-  `if (!otDatasetIsCommissioned(...))`. Provide a way back (e.g. a button or a
-  CoAP/Loconet "open BLE for N minutes" command) for re-provisioning.
-- **B — Keep BLE, but stop advertising after the first Thread attach** and on a
-  timeout, so it's reachable for recovery but not broadcasting.
-- **C — Leave as-is** and update [../INTERFACES.md](../INTERFACES.md) to drop the
-  "turns off BLE" claim.
+**Behavior matrix.**
 
-**Recommendation.** Decide A vs B as a product call. A is simplest and matches the
-documented model; pair it with a deliberate re-provisioning trigger so a
-commissioned loco isn't bricked from BLE access if the Thread network is lost.
+| Boot state | Thread role over time | BLE advertising |
+|---|---|---|
+| Not commissioned | stays DISABLED | on, indefinitely |
+| Commissioned, BR down | stays DETACHED | on, indefinitely |
+| Commissioned, attach OK | DETACHED → CHILD | on for N min after attach, then off |
+| Attached, network drops | CHILD → DETACHED | resumes immediately |
+| Attached, `/ble-recovery` | (any) | back on, fresh N-min window |
 
-**Affected:** [../src/main.c](../src/main.c).
-**Effort:** M. **Risk:** medium (don't strand a loco with no control channel).
+**Verification checklist.**
+
+- [ ] Build with default Kconfig; observe `LOG_INF "Thread attached; BLE
+      advertising will stop in 5 min"` after attach, then `"stopping BLE
+      advertising"` after 5 min, plus advertising actually going dark in nRF
+      Connect.
+- [ ] Force a Thread detach (power-cycle BR) and confirm BLE comes back.
+- [ ] From a Thread-connected client:
+      `coap-client -N -m put coap://[<loco>]:5683/ble-recovery` →
+      advertising resumes for another window.
+- [ ] Build with `CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES=0`; BLE never stops.
+- [ ] Existing BLE client connected when timer fires: session not kicked, but no
+      new connections accepted until recovery.
+
+**Known follow-ups (not blocking).**
+
+- The re-provisioning passphrase write (credential char) still happens over BLE.
+  If BLE is off and the user wants to re-provision onto a different network,
+  they must either trigger `/ble-recovery` from the current network or take
+  Thread down so the detach path resumes BLE.
+- The boot-time always-on window means a freshly rebooted commissioned loco is
+  briefly BLE-visible. Acceptable; matches the "always reachable to grab" intent.
