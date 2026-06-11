@@ -1,7 +1,11 @@
 #include "main_loki.h"
+#include "main_ot_utils.h"
 #include "motors/motor.h"
 #include "displays/main_display.h"
 #include <zephyr/logging/log.h>
+#include <zephyr/settings/settings.h>
+#include <string.h>
+#include <stdio.h>
 
 
 #if !DT_HAS_ALIAS(motor0)
@@ -119,6 +123,70 @@ void change_direction(uint8_t new_pattern){
 	} else {
 		LOG_DBG("Direction is already set to %u", direction_pattern);
 	}
+}
+
+/* Build/refresh the SRP service registration for the current DCC address and
+ * (re-)bind the Loconet UDP listener. Idempotent: any prior entry is freed
+ * first, so this is safe to call from boot and from runtime DCC changes.
+ * No-op if dcc_address is 0 or the OpenThread instance is not available. */
+void register_dcc_service(void)
+{
+	otInstance *p = openthread_get_default_instance();
+	if (p == NULL) {
+		LOG_WRN("DCC SRP register skipped: no OpenThread instance");
+		return;
+	}
+
+	/* Tear down any previous registration so SRP slots are not leaked when
+	 * the DCC address is changed at runtime. */
+	if (dcc_name_coap_service.mService.mInstanceName != NULL) {
+		LOG_INF("Freeing previous DCC SRP entry");
+		otSrpClientBuffersFreeService(p, &dcc_name_coap_service);
+		memset(&dcc_name_coap_service, 0, sizeof(dcc_name_coap_service));
+	}
+
+	if (dcc_address == 0) {
+		LOG_INF("DCC unset; no SRP registration");
+		return;
+	}
+
+	char dcc_string[6]; /* uint16 max is 65535 = 5 chars + NUL */
+	snprintf(dcc_string, sizeof(dcc_string), "%u", dcc_address);
+
+	otSrpClientBuffersServiceEntry *entry = register_service(
+		p, dcc_string, SRP_LCN_SERVICE, SRP_LCN_PORT);
+	if (entry == NULL) {
+		LOG_ERR("Failed to allocate DCC SRP service entry");
+		return;
+	}
+	dcc_name_coap_service = *entry;
+
+	bindUdpHandler(p, &loconet_udp_socket, SRP_LCN_PORT,
+		       on_udp_loconet_receive);
+	LOG_INF("UDP port %d is listening for LNet messages addressing #%s",
+		SRP_LCN_PORT, dcc_string);
+}
+
+void apply_dcc_address(uint16_t new_dcc)
+{
+	if (new_dcc == dcc_address) {
+		LOG_INF("DCC unchanged at %u", dcc_address);
+		return;
+	}
+	LOG_INF("DCC address %u -> %u", dcc_address, new_dcc);
+	dcc_address = new_dcc;
+
+	int rc = settings_save_subtree("loki/dcc");
+	if (rc) {
+		LOG_ERR("Error saving DCC to NVM: %d", rc);
+	} else {
+		LOG_INF("Saved DCC to NVM: %u", dcc_address);
+	}
+
+	/* Best-effort SRP update. If Thread/SRP isn't up yet the call logs and
+	 * returns; the persisted value will be picked up by the boot path on
+	 * the next attach. */
+	register_dcc_service();
 }
 
 void define_light(){

@@ -616,21 +616,9 @@ int main(void)
 				register_coap_service(openthread_get_default_instance(), full_name, SRP_LONGNAME_SERVICE);
 				register_coap_service(openthread_get_default_instance(), ble_name, SRP_SHORTNAME_SERVICE);
 			}
-		if (dcc_address != 0) {
-			LOG_INF("DCC Address set to %d\n", dcc_address);
-			if (dcc_name_coap_service.mService.mInstanceName != NULL) {
-				LOG_INF("Service %s already registered as %d, freeing first", SRP_DCC_SERVICE, dcc_address);
-				otSrpClientBuffersFreeService(openthread_get_default_instance(), &dcc_name_coap_service);
-			}
-			char *dcc_string = malloc(15);
-			sprintf(dcc_string, "%d", dcc_address);
-			dcc_name_coap_service = *register_service(openthread_get_default_instance(),dcc_string , SRP_LCN_SERVICE, SRP_LCN_PORT);
-
-			bindUdpHandler(openthread_get_default_instance(),&loconet_udp_socket, SRP_LCN_PORT, on_udp_loconet_receive);
-			LOG_INF("UDP Port %d is listening for LNet Messages addressing #%s",SRP_LCN_PORT,dcc_string);
-
-			
-		}
+		/* Boot path: dcc_address was loaded from NVM by load_settings_from_nvm().
+		 * The helper handles the "unset" (0) case and frees stale entries. */
+		register_dcc_service();
 
 	} else {
 		LOG_INF("Thread not commissioned\n");

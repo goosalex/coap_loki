@@ -260,9 +260,8 @@ static ssize_t write_dcc(struct bt_conn *conn,
 	} else {
 		value = sys_get_le16(buf);
 	}
-	dcc_address = value;
+	apply_dcc_address(value);
 	return len;
-	
 }
 
 static ssize_t read_credential(struct bt_conn *conn, const struct bt_gatt_attr *attr,

@@ -44,28 +44,54 @@ re-ordering of characteristics can't silently break it again.
 
 ---
 
-## 1.2 DCC address written over BLE is volatile
+## 1.2 DCC address written over BLE is volatile — **applied**
 
-**Problem.** `write_dcc` ([../src/main_ble_utils.c:261-274](../src/main_ble_utils.c#L261-L274))
-updates `dcc_address` in RAM only — no NVM save, no SRP/Loconet re-registration.
-The short-name path (`modify_short_name`) does all three.
+**Was.** `write_dcc` just assigned `dcc_address = value;` — no NVM save, no SRP
+re-registration, no UDP rebind. A DCC address set over BLE survived only until
+the next reboot.
 
-**Why it matters.** A DCC address set over BLE is lost on reboot, and the loco
-won't be discoverable/addressable by that DCC number until the next cold start
-that happens to re-register.
+**Now.** Two related helpers declared in [../src/main_loki.h](../src/main_loki.h)
+and implemented in [../src/main_loki.c](../src/main_loki.c) — co-located with
+the other loco-state setters (`change_speed_directly`, `change_direction`, …):
 
-**Fix.** Mirror the short-name path:
+- `apply_dcc_address(uint16_t)` — runtime mutator. Updates `dcc_address`,
+  persists via `settings_save_subtree("loki/dcc")`, then calls
+  `register_dcc_service()`.
+- `register_dcc_service(void)` — SRP/UDP registration for the current
+  `dcc_address`. Idempotent: frees any prior entry first; no-op when
+  `dcc_address == 0`.
 
-1. Persist: `settings_save_subtree("loki/dcc")` (the export handler already
-   serialises `loki/dcc`, [../src/main.c:257](../src/main.c#L257)).
-2. Re-register the Loconet/DCC SRP service with the new address and rebind the
-   UDP listener — factor the block in [../src/main.c:444-458](../src/main.c#L444-L458)
-   into a reusable `apply_dcc_address(uint16_t)` and call it from both `main()`
-   and `write_dcc`.
+Call sites:
 
-**Affected:** [../src/main_ble_utils.c](../src/main_ble_utils.c),
-[../src/main.c](../src/main.c).
-**Effort:** M. **Risk:** medium (touches SRP registration lifecycle).
+- `write_dcc` in [../src/main_ble_utils.c](../src/main_ble_utils.c) calls
+  `apply_dcc_address(value)`.
+- `main()` boot path in [../src/main.c](../src/main.c) replaces the inline DCC
+  block with a single call to `register_dcc_service()`, using the value already
+  loaded from NVM. This also drops the `malloc(15)` leak the old block had.
+
+**Verification.**
+
+- [ ] Set a DCC address over BLE, reboot, observe `apply_dcc_address` /
+      `register_dcc_service` logs and that DNS-SD still resolves the new DCC
+      instance.
+- [ ] Change the DCC over BLE while attached; confirm the old SRP instance is
+      freed and the new one shows up in the OTBR's mDNS proxy.
+- [ ] Write `dcc=0` and confirm the SRP entry is freed cleanly.
+
+**Known limitations.**
+
+- If the loco is detached when the write happens, `register_dcc_service()` will
+  still call the SRP client APIs (which may log errors) — the NVM save is what
+  guarantees persistence, and the boot path re-registers on next attach.
+- The underlying SRP service type (`SRP_LCN_SERVICE`) is still the
+  3-label non-conformant string flagged in
+  [03 §3.1](03-dns-sd-discovery.md#31-use-conformant-2-label-service-types); the
+  helper is structured so the rename to `_dcc._udp` will be a one-line change.
+- `register_service()` ignores its `port` argument
+  ([03 §3.5](03-dns-sd-discovery.md#35-cross-cutting-registration-lifecycle-hygiene));
+  the SRV record currently always advertises `OT_DEFAULT_COAP_PORT` (5683)
+  instead of `SRP_LCN_PORT` (1234). The helper passes the intended port so the
+  fix in 03 §3.5 will take effect with no further change here.
 
 ---
 
