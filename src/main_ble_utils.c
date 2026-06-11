@@ -199,9 +199,11 @@ static _ssize_t write_name(struct bt_conn *conn,
                uint16_t len, uint16_t offset, uint8_t flags)
 {
     int err;
-	
-		char new_name[MAX_LEN_FULL_NAME];
-    if (len > sizeof(new_name)) {
+
+		/* +1 leaves room for the NUL terminator written below — without it,
+		 * a write of exactly MAX_LEN_FULL_NAME bytes overflowed by one. */
+		char new_name[MAX_LEN_FULL_NAME + 1];
+    if (len > MAX_LEN_FULL_NAME) {
         return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
     }
 

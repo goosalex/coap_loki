@@ -91,26 +91,20 @@ path doesn't touch SRP). Also persist `loki/longname` like the short name does.
 
 ---
 
-## 1.4 `write_name` one-byte overflow
+## 1.4 `write_name` one-byte overflow — **applied**
 
-**Problem.** `write_name` ([../src/main_ble_utils.c:207-227](../src/main_ble_utils.c#L207-L227))
-declares `char new_name[MAX_LEN_FULL_NAME]` (63), checks `len > sizeof(new_name)`,
-then writes `new_name[len] = '\0'`. When `len == 63`, the terminator lands at
-`new_name[63]` — one past the end.
+**Was.** `write_name` declared `char new_name[MAX_LEN_FULL_NAME]` (63) and checked
+`len > sizeof(new_name)`. When `len == 63`, the bounds check passed and the
+subsequent `new_name[len] = '\0'` wrote the terminator one past the end.
 
-**Fix.** Reserve room for the terminator:
+**Now.** Buffer enlarged to `MAX_LEN_FULL_NAME + 1` and the bounds check uses the
+constant directly (`len > MAX_LEN_FULL_NAME`); see
+[../src/main_ble_utils.c](../src/main_ble_utils.c) `write_name`.
 
-```c
-char new_name[MAX_LEN_FULL_NAME + 1];
-if (len > MAX_LEN_FULL_NAME) {
-    return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
-}
-memcpy(new_name, buf, len);
-new_name[len] = '\0';
-```
-
-**Affected:** [../src/main_ble_utils.c](../src/main_ble_utils.c).
-**Effort:** S. **Risk:** low.
+**Verification.** A 63-byte write now lands the terminator at `new_name[63]`,
+which is inside the 64-byte buffer; a 64-byte write is rejected with
+`BT_ATT_ERR_INVALID_ATTRIBUTE_LEN`. Worth confirming in nRF Connect with a
+63-char name once the firmware is reflashed.
 
 ---
 
