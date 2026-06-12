@@ -428,6 +428,10 @@ void init_srp() {
 			/* Drop any stale pool entry first so we don't leak a slot when
 			 * init_srp re-runs on address changes with a renamed loco. */
 			if (short_name_coap_service != NULL) {
+				otError err = otSrpClientRemoveService(p_instance, &short_name_coap_service->mService);
+				if (err != OT_ERROR_NONE) {
+					LOG_WRN("Cannot remove stale short-name SRP service: %d", err);
+				}
 				otSrpClientBuffersFreeService(p_instance, short_name_coap_service);
 				short_name_coap_service = NULL;
 			}
