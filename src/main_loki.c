@@ -4,6 +4,7 @@
 #include "motors/motor.h"
 #include "displays/main_display.h"
 #include <zephyr/logging/log.h>
+#include <zephyr/net/openthread.h>   /* openthread_api_mutex_{lock,unlock} */
 #include <zephyr/settings/settings.h>
 #include <string.h>
 #include <stdio.h>
@@ -133,10 +134,17 @@ void change_direction(uint8_t new_pattern){
 void register_dcc_service(void)
 {
 	otInstance *p = openthread_get_default_instance();
-	if (p == NULL) {
-		LOG_WRN("DCC SRP register skipped: no OpenThread instance");
+	struct openthread_context *ot_context = openthread_get_default_context();
+	if (p == NULL || ot_context == NULL) {
+		LOG_WRN("DCC SRP register skipped: no OpenThread instance/context");
 		return;
 	}
+
+	/* Reachable from the main thread (boot), the BLE write_dcc thread
+	 * (via apply_dcc_address), and potentially from a future CoAP handler
+	 * on the OT thread. Hold the OT API mutex for the duration. The OT
+	 * mutex is recursive, so a future caller already holding it is fine. */
+	openthread_api_mutex_lock(ot_context);
 
 	/* Tear down any previous registration so SRP slots are not leaked when
 	 * the DCC address is changed at runtime. */
@@ -148,6 +156,7 @@ void register_dcc_service(void)
 
 	if (dcc_address == 0) {
 		LOG_INF("DCC unset; no SRP registration");
+		openthread_api_mutex_unlock(ot_context);
 		return;
 	}
 
@@ -158,6 +167,7 @@ void register_dcc_service(void)
 		p, dcc_string, SRP_LCN_SERVICE, SRP_LCN_PORT);
 	if (entry == NULL) {
 		LOG_ERR("Failed to allocate DCC SRP service entry");
+		openthread_api_mutex_unlock(ot_context);
 		/* Re-open the BLE window so the loco stays reachable while
 		 * SRP can't take the DCC registration. Gated by
 		 * CONFIG_LOKI_BLE_RECOVERY_ON_SRP_FAIL. */
@@ -170,6 +180,8 @@ void register_dcc_service(void)
 		       on_udp_loconet_receive);
 	LOG_INF("UDP port %d is listening for LNet messages addressing #%s",
 		SRP_LCN_PORT, dcc_string);
+
+	openthread_api_mutex_unlock(ot_context);
 }
 
 void apply_dcc_address(uint16_t new_dcc)

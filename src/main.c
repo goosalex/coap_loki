@@ -601,6 +601,13 @@ int main(void)
 		init_srp();				
 		LOG_INF("SRP client enabled\n");
 		display_updateOTConnectionStatus("+SRP");
+		/* loki_coap_init() and the explicit long-name register_coap_service()
+		 * below both talk to OT APIs (otCoap*, otSrpClient*) from the main
+		 * thread, so wrap them in the OT API mutex. enable_thread / init_srp /
+		 * register_dcc_service take the mutex themselves; the recursive
+		 * k_mutex makes the nesting safe. */
+		struct openthread_context *ot_ctx = openthread_get_default_context();
+		openthread_api_mutex_lock(ot_ctx);
 		if (loki_coap_init(
 			change_speed_directly,
 			speed_set_acceleration,
@@ -609,7 +616,7 @@ int main(void)
 			modify_full_name,
 			ble_lifecycle_force_recovery
 			) != 0) {
-				LOG_ERR("CoAP init failed\n");			
+				LOG_ERR("CoAP init failed\n");
 			} else {
 				display_updateOTConnectionStatus("+S+CoAP");
 				LOG_INF("CoAP initialized\n");
@@ -632,6 +639,7 @@ int main(void)
 					ble_lifecycle_recover_on_srp_failure();
 				}
 			}
+		openthread_api_mutex_unlock(ot_ctx);
 		/* Boot path: dcc_address was loaded from NVM by load_settings_from_nvm().
 		 * The helper handles the "unset" (0) case and frees stale entries. */
 		register_dcc_service();

@@ -127,8 +127,8 @@ int disable_thread(otInstance *p_instance){
 
 int start_thread_joiner(char *secret)
 {
-
 	otInstance *p_instance = openthread_get_default_instance();
+	struct openthread_context *ot_context = openthread_get_default_context();
 	otError error = OT_ERROR_NONE;
 
 	if (strlen(secret) < 6 ) {
@@ -139,27 +139,33 @@ int start_thread_joiner(char *secret)
 		// TODO: Implement active dataset
 		return -1;
 	}
+
+	/* This is invoked from the BLE write_credential handler — not the OT
+	 * thread — so we must own the OT API mutex while talking to OT. */
+	openthread_api_mutex_lock(ot_context);
+
 	LOG_INF("Starting Thread Network reset\n");
 	// otInstanceFactoryReset(p_instance); // leads to complete reset, all non-volatile data is lost
 	error = otThreadBecomeDetached(p_instance); // detaches from current network
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Failed to detach from network: %s", otThreadErrorToString(error));
-
 	}
 	error = disable_thread(p_instance);
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Failed to disable current Thread settings: %s", otThreadErrorToString(error));
+		openthread_api_mutex_unlock(ot_context);
 		return -1;
 	}
 	LOG_INF("Thread Network reset\n");
 	LOG_INF("Ensure Interface is up\n");
-	error = otIp6SetEnabled(p_instance, true);	
+	error = otIp6SetEnabled(p_instance, true);
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Failed to enable IP6: %s", otThreadErrorToString(error));
+		openthread_api_mutex_unlock(ot_context);
 		return -1;
-	}	
+	}
 
-    LOG_INF("Starting joiner\n");
+	LOG_INF("Starting joiner\n");
 	error = otJoinerStart(p_instance,
 									secret,
 									NULL,
@@ -174,9 +180,11 @@ int start_thread_joiner(char *secret)
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Failed to start joiner: %s", otThreadErrorToString(error));
 		// -11: Invalid State : (Get<ThreadNetif>().IsUp() && Get<Mle::Mle>().GetRole() == Mle::kRoleDisabled,
+		openthread_api_mutex_unlock(ot_context);
 		return -1;
 	}
 	LOG_INF("Joiner started\n");
+	openthread_api_mutex_unlock(ot_context);
 	return error;
 }
 
@@ -281,55 +289,54 @@ static struct openthread_state_changed_cb ot_address_changed_cb = { .state_chang
 
 int enable_thread(){
 	otInstance *p_instance = openthread_get_default_instance();
+	struct openthread_context *ot_context = openthread_get_default_context();
 	if (ot_is_enabled) {
 		LOG_INF("Thread network already enabled\n");
 		return 0;
 	}
-	if (p_instance == NULL) {
-		LOG_ERR("No OpenThread instance\n");
+	if (p_instance == NULL || ot_context == NULL) {
+		LOG_ERR("No OpenThread instance/context\n");
 		return -1;
 	}
 	otError error = OT_ERROR_NONE;
-	otDeviceRole role = otThreadGetDeviceRole(p_instance);
 
-	if (role == OT_DEVICE_ROLE_CHILD) {
+	openthread_api_mutex_lock(ot_context);
+
+	otDeviceRole role = otThreadGetDeviceRole(p_instance);
+	if (role == OT_DEVICE_ROLE_CHILD ||
+	    role == OT_DEVICE_ROLE_ROUTER ||
+	    role == OT_DEVICE_ROLE_LEADER) {
 		LOG_INF("Already connected to Thread network\n");
-		return 0;
-	}
-	if (role == OT_DEVICE_ROLE_ROUTER) {
-		LOG_INF("Already connected to Thread network\n");
-		return 0;
-	}
-	if (role == OT_DEVICE_ROLE_LEADER) {
-		LOG_INF("Already connected to Thread network\n");
+		openthread_api_mutex_unlock(ot_context);
 		return 0;
 	}
 	LOG_INF("Enabling Thread network\n");
-	
 
-	if (0 != openthread_state_changed_cb_register(openthread_get_default_context(), &ot_state_chaged_cb)){
+	if (0 != openthread_state_changed_cb_register(ot_context, &ot_state_chaged_cb)){
 		LOG_ERR("OpenThread State Change Callback Registration failed\n");
-	};
-	if (0 != openthread_state_changed_cb_register(openthread_get_default_context(), &ot_address_changed_cb)){
+	}
+	if (0 != openthread_state_changed_cb_register(ot_context, &ot_address_changed_cb)){
 		LOG_ERR("OpenThread Address Change Callback Registration failed\n");
-	};
+	}
 	LOG_INF("OpenThread Callbacks registered\n");
 	LOG_INF("Starting IPv6 network\n");
 	error = otIp6SetEnabled(p_instance, true);
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Failed to enable IP6: %s", otThreadErrorToString(error));
+		openthread_api_mutex_unlock(ot_context);
 		return -1;
 	}
 	LOG_INF("Starting Thread network\n");
 	error = otThreadSetEnabled(p_instance, true);
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Failed to enable Thread (error: %d)", error);
+		openthread_api_mutex_unlock(ot_context);
 		return -1;
-	}	else {
+	} else {
 		LOG_INF("OpenThread Started\n");
 	}
+	openthread_api_mutex_unlock(ot_context);
 	return 0;
-
 }
 
 	int get_Eui64(char *printable)
@@ -362,19 +369,25 @@ void srp_callback(otError error, const otSrpClientHostInfo *aHostInfo,
 
 void aSrpClientAutoStartCallback(const otSockAddr *aServerSockAddr, void *aContext);
 
-struct k_mutex srp_client_mutex;
-
 void init_srp() {
-	//if (k_mutex_lock(&srp_client_mutex, K_MSEC(100)) == 0) {
-    /* mutex successfully locked */
-
-
 	otError error;
 	otInstance *p_instance = openthread_get_default_instance();
+	struct openthread_context *ot_context = openthread_get_default_context();
 	otSrpClientBuffersServiceEntry *entry;
 	char *host_name;
-
 	uint16_t size;
+
+	if (p_instance == NULL || ot_context == NULL) {
+		LOG_ERR("init_srp: no OpenThread instance/context");
+		return;
+	}
+
+	/* Serialize all OT API calls. init_srp is reached from the OT thread
+	 * (address-change callbacks, joiner callback) and from the main thread
+	 * (boot). The OT API mutex is recursive (k_mutex), so this is safe
+	 * even when the OT thread already holds the lock implicitly around
+	 * its own callback dispatch. */
+	openthread_api_mutex_lock(ot_context);
 
 		if (otSrpClientIsRunning(p_instance)) {
 			otSrpClientStop(p_instance);
@@ -404,7 +417,7 @@ void init_srp() {
 				LOG_ERR("Cannot set SRP client host name: %s",
 						otThreadErrorToString(error));
 				ble_lifecycle_recover_on_srp_failure();
-				k_mutex_unlock(&srp_client_mutex);
+				openthread_api_mutex_unlock(ot_context);
 				return;
 			}
 		}
@@ -413,7 +426,7 @@ void init_srp() {
 			LOG_ERR("Cannot enable auto host address mode: %s",
 					otThreadErrorToString(error));
 			ble_lifecycle_recover_on_srp_failure();
-			k_mutex_unlock(&srp_client_mutex);
+			openthread_api_mutex_unlock(ot_context);
 			return;
 		} else {
 			LOG_INF("Auto host address mode enabled");
@@ -451,14 +464,8 @@ void init_srp() {
 		otSrpClientEnableAutoStartMode(p_instance, &aSrpClientAutoStartCallback, NULL);
 		LOG_INF("SRP client initialized, waiting for callback");
 		srp_is_enabled = true; // initial setup done
-	//	k_mutex_unlock(&srp_client_mutex);
 
-	//} else {
-		LOG_WRN("Cannot lock Init SRP client routines\n");
-
-	//}
-
-	return;
+	openthread_api_mutex_unlock(ot_context);
 }
 
 void aSrpClientAutoStartCallback(const otSockAddr *aServerSockAddr, void *aContext) {

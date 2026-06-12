@@ -243,10 +243,20 @@ server:
   stops the SRP client and re-registers from scratch. Verify this doesn't
   leave orphaned services with the SRP server (key signing reuse, lease
   timing).
-- The `srp_client_mutex` is referenced but commented out
-  ([../src/main_ot_utils.c:355-432](../src/main_ot_utils.c#L355-L432)); the
+- ~~The `srp_client_mutex` is referenced but commented out … the
   `LOG_WRN("Cannot lock Init SRP client routines")` always fires regardless of
-  outcome.
+  outcome.~~ — **applied.** The custom mutex was the wrong abstraction: the
+  problem it was trying to solve is "OpenThread APIs must be called single-
+  threaded", and the right tool is the OT API mutex (`openthread_api_mutex_lock`
+  / `_unlock`), which OT's own thread already takes around its callback
+  dispatch. The dead `struct k_mutex srp_client_mutex;` declaration, all its
+  unlock calls in error paths, and the always-fires `"Cannot lock …"` log
+  are gone. `init_srp`, `enable_thread`, `start_thread_joiner` (all in
+  [../src/main_ot_utils.c](../src/main_ot_utils.c)), and `register_dcc_service`
+  ([../src/main_loki.c](../src/main_loki.c)) now hold the OT API mutex around
+  every OT call. The boot path in [../src/main.c](../src/main.c) wraps
+  `loki_coap_init` + the long-name registration the same way. Recursive
+  `k_mutex` semantics make nested lock attempts safe.
 - ~~`register_service()` ignores its `port` argument and always uses
   `OT_DEFAULT_COAP_PORT`~~ — **applied.** Both `register_service` and
   `re_register_service` now run their `port` argument through a small
