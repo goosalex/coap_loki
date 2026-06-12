@@ -194,8 +194,14 @@ int init_and_optionally_clear_nvs(void)
 
     bool clear = false;
 
-    /* Open NVS flash area */
-	err = flash_area_open(FIXED_PARTITION_ID(STORAGE_NODE), &fa);
+    /* Open NVS flash area. Address the partition by its PM name
+     * (`settings_storage`) rather than via DT_CHOSEN — the NCS Partition
+     * Manager redefines FIXED_PARTITION_ID() to do PM_##label##_ID and
+     * does not pre-expand its argument, so a DT_CHOSEN node-id token
+     * would produce an undefined symbol. PM defines PM_settings_storage_ID
+     * for both the nRF52 and nRF54L builds. See TODO/05 or the discussion
+     * in INTERFACES.md for the deciding-bit analysis. */
+	err = flash_area_open(FIXED_PARTITION_ID(settings_storage), &fa);
     if (err) {
         return err;
     }
@@ -239,8 +245,9 @@ int init_and_optionally_clear_nvs(void)
         stored_build = 0;
     }
 
-    /* Version-based wipe (SemVer MAJOR.MINOR only) */
-    if (IS_ENABLED(CONFIG_CLEAR_SETTINGS_NEW_VERSION) &&
+    /* Version-based wipe (SemVer MAJOR.MINOR only).
+     * Gate: CONFIG_LOKI_CLEAR_SETTINGS_NEW_VERSION (default y). */
+    if (IS_ENABLED(CONFIG_LOKI_CLEAR_SETTINGS_NEW_VERSION) &&
         semver_major_minor_changed(&stored_ver, &current_ver)) {
 
 		 printk("Version change %u.%u -> %u.%u\n",
@@ -249,8 +256,9 @@ int init_and_optionally_clear_nvs(void)
         clear = true;
     }
 
-    /* Build-based wipe */
-    if (IS_ENABLED(CONFIG_CLEAR_SETTINGS_NEW_BUILD) &&
+    /* Build-based wipe.
+     * Gate: CONFIG_LOKI_CLEAR_SETTINGS_NEW_BUILD (default n). */
+    if (IS_ENABLED(CONFIG_LOKI_CLEAR_SETTINGS_NEW_BUILD) &&
         stored_build != current_build) {
 
 		 printk("Build change %" PRIu64 " -> %" PRIu64 "\n",
