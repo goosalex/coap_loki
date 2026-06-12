@@ -462,6 +462,22 @@ void aSrpClientAutoStartCallback(const otSockAddr *aServerSockAddr, void *aConte
 	}
 }
 
+/* Clamp a caller-supplied port into the legal UDP/TCP range [1, 65535] or
+ * fall back to OT_DEFAULT_COAP_PORT for "undefined" (0), negative, or
+ * out-of-range values. Used by register_service / re_register_service —
+ * pre-§1.7 register_service silently ignored its port argument; this
+ * restores it with a safety net so callers can pass SRP_LCN_PORT etc. */
+static uint16_t srp_valid_or_default_port(int port)
+{
+	if (port <= 0 || port > UINT16_MAX) {
+		LOG_WRN("SRP register: port %d out of range, falling back to "
+			"OT_DEFAULT_COAP_PORT (%u)",
+			port, OT_DEFAULT_COAP_PORT);
+		return OT_DEFAULT_COAP_PORT;
+	}
+	return (uint16_t)port;
+}
+
 otSrpClientBuffersServiceEntry *register_coap_service( otInstance *p_instance ,  char *instance_name, char *service_name) {
 	return register_service(p_instance, instance_name, service_name, OT_DEFAULT_COAP_PORT);
 }
@@ -503,7 +519,7 @@ int re_register_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntr
 		otSrpClientBuffersGetServiceEntryServiceNameString(*entry, &size);
 	memcpy(service_name_buf, service_name, strlen(service_name) + 1);
 
-	(*entry)->mService.mPort = port;
+	(*entry)->mService.mPort = srp_valid_or_default_port(port);
 
 	error = otSrpClientAddService(p_instance, &(*entry)->mService);
 	if (error != OT_ERROR_NONE) {
@@ -534,7 +550,7 @@ otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  char
 	service_name_buf =
 		otSrpClientBuffersGetServiceEntryServiceNameString(entry, &size);
 	memcpy(service_name_buf, service_name, strlen(service_name) + 1);
-	entry->mService.mPort = OT_DEFAULT_COAP_PORT;
+	entry->mService.mPort = srp_valid_or_default_port(port);
 	error = otSrpClientAddService(p_instance, &entry->mService);
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Cannot add service: %s", otThreadErrorToString(error));

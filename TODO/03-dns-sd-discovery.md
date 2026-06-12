@@ -247,10 +247,17 @@ server:
   ([../src/main_ot_utils.c:355-432](../src/main_ot_utils.c#L355-L432)); the
   `LOG_WRN("Cannot lock Init SRP client routines")` always fires regardless of
   outcome.
-- `register_service()` ignores its `port` argument and always uses
-  `OT_DEFAULT_COAP_PORT`
-  ([../src/main_ot_utils.c:510](../src/main_ot_utils.c#L510)). This silently
-  defeats the Loconet/DCC port=1234 intent and any future `_nfc._udp` port
-  choice — must be fixed before 3.2/3.3 will work.
+- ~~`register_service()` ignores its `port` argument and always uses
+  `OT_DEFAULT_COAP_PORT`~~ — **applied.** Both `register_service` and
+  `re_register_service` now run their `port` argument through a small
+  validator `srp_valid_or_default_port()` in
+  [../src/main_ot_utils.c](../src/main_ot_utils.c) that accepts `[1, 65535]`
+  and falls back to `OT_DEFAULT_COAP_PORT` with a `LOG_WRN` for 0/negative/
+  out-of-range. The pre-existing call site at
+  [../src/main_loki.c](../src/main_loki.c) `register_dcc_service` already
+  passed `SRP_LCN_PORT` (1234); it was previously silently downgraded to
+  5683 in SRP, so the DCC/Loconet SRV record will now advertise port 1234
+  to match the actual UDP listener. **Unblocks 3.2 and 3.3.**
 
-**Effort:** S. **Risk:** low. **Blocks:** 3.2 and 3.3 (port bug).
+**Effort:** S. **Risk:** low. **Status:** port bug applied; the other two
+items above remain open.
