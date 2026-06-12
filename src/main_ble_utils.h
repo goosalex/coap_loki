@@ -1,6 +1,8 @@
 #ifndef MAIN_LOKI_BLE_H
 #define MAIN_LOKI_BLE_H
 
+#include <zephyr/sys/atomic.h>
+
 /* GATT service/characteristic UUIDs + BLE naming caps are generated from
  * interface/gatt.yaml by tools/gen_descriptors.py. Edit the YAML, not the
  * generated header. */
@@ -19,7 +21,12 @@
 void bt_submit_start_advertising_work();
 void bt_submit_refresh_advertising_data_work();
 
-static atomic_t ble_should_advertise = ATOMIC_INIT(1);
+/* BLE advertising intent flag for the lifecycle controller. Defined once in
+ * main_ble_utils.c (single shared variable across the firmware). Other TUs
+ * — notably main_ot_utils.c on SRP registration failure — can prefer the
+ * higher-level `ble_lifecycle_force_recovery()` over poking this directly,
+ * since the helper also reschedules the auto-stop timer. */
+extern atomic_t ble_should_advertise;
 
 extern void bt_notify_speed(void);
 extern void bt_register(void);
@@ -33,5 +40,20 @@ extern int bt_ready(void);
 void ble_lifecycle_on_thread_attached(void);
 void ble_lifecycle_on_thread_detached(void);
 void ble_lifecycle_force_recovery(void);
+
+/* Convenience for OpenThread / SRP code: re-open the BLE recovery window when
+ * an SRP/DNS-SD operation fails, but only if CONFIG_LOKI_BLE_RECOVERY_ON_SRP_FAIL
+ * is set. Centralises the gate so all SRP-failure call sites stay short and
+ * the on/off decision lives in one place.
+ *
+ * Note: the explicit /ble-recovery CoAP endpoint deliberately uses the bare
+ * ble_lifecycle_force_recovery() to bypass this gate — a human asking for
+ * recovery should always get it. */
+static inline void ble_lifecycle_recover_on_srp_failure(void)
+{
+	if (IS_ENABLED(CONFIG_LOKI_BLE_RECOVERY_ON_SRP_FAIL)) {
+		ble_lifecycle_force_recovery();
+	}
+}
 
 #endif /* MAIN_LOKI_BLE_H */

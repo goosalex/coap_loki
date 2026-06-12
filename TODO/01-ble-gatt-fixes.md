@@ -197,6 +197,14 @@ or commissioned-but-network-down), BLE stays on indefinitely. A CoAP
   Thread down so the detach path resumes BLE.
 - The boot-time always-on window means a freshly rebooted commissioned loco is
   briefly BLE-visible. Acceptable; matches the "always reachable to grab" intent.
+- **Automatic recovery on SRP failure.** Five SRP-registration failure sites
+  (host-name set, auto-host-address mode, and the short/long/DCC service
+  allocations) call `ble_lifecycle_recover_on_srp_failure()`, a `static inline`
+  helper in [../src/main_ble_utils.h](../src/main_ble_utils.h) that re-opens
+  the advertising window when `CONFIG_LOKI_BLE_RECOVERY_ON_SRP_FAIL=y`
+  (default). The CoAP `/ble-recovery` path bypasses the gate — a human asking
+  for recovery always gets it. Turn the Kconfig off to treat SRP outages
+  silently and require the manual or detach path.
 
 ---
 
@@ -347,3 +355,97 @@ registration":
 
 **Depends on:** [1.6](#16-srp-buffer-entries-are-per-tu-duplicates--applied)
 (done).
+
+---
+
+## 1.8 Guardrail: catch `static` shared-state primitives in headers
+
+**The picture.** A `static` keyword on a variable defined inside a header
+file does *not* share that variable across the firmware — it gives every
+`.c` that includes the header its own private copy. Twice in the same
+session this pattern bit us: the SRP buffer entries
+([1.6](#16-srp-buffer-entries-are-per-tu-duplicates--applied)) and the BLE
+advertise-intent atomic flag (followup to [1.7](#17-unregistering-srp-services-silently-fails-slot-leak--applied)
+when the controller's atomic was moved into the header by accident). In
+both cases the code *appeared* to work because all the live readers and
+writers happened to live in the same TU — until they didn't, and a
+"shared" flag silently stopped being shared.
+
+Once is an oversight; twice in a week is a pattern worth blocking
+mechanically.
+
+**Why a check is worth the cost.** The footgun is easy to introduce
+(`static` looks defensive; moving a definition between `.c` and `.h` reads
+as a refactor) and hard to spot in review unless you're already looking
+for it. The footprint matches a small set of recognisable Zephyr / OT
+primitives, so a one-line `git grep` regex is enough to catch every
+instance we care about — false-positive rate of essentially zero.
+
+**Proposed check.** A small script at `tools/check_no_static_in_header.sh`
+that fails (exit 1) if any matching line is found:
+
+```sh
+#!/usr/bin/env bash
+# Reject `static <state-primitive> …` definitions in headers. These would
+# silently give every including TU its own private copy of what should be
+# shared state. Use `extern <type> foo;` in the header + one non-static
+# definition in a .c file instead — see TODO/01 §1.6 and §1.7.
+set -euo pipefail
+
+PATTERN='^\s*static\s+(atomic_t|atomic_var_t|otSrpClientBuffersServiceEntry|otCoapResource|struct\s+(k_work|k_work_delayable|k_timer|k_sem|k_mutex|k_mbox|k_fifo|k_lifo|k_stack|k_pipe))\b'
+
+hits=$(git grep -nE "$PATTERN" -- 'src/**/*.h' 'interface/**/*.h' || true)
+
+if [ -n "$hits" ]; then
+    echo "error: 'static' shared-state primitive(s) found in headers:" >&2
+    echo "$hits" >&2
+    echo >&2
+    echo "These produce one independent copy per translation unit." >&2
+    echo "Move the definition into a .c file and use 'extern …;' in the header." >&2
+    exit 1
+fi
+```
+
+The blocklist is intentionally **specific** (named Zephyr / OT types we
+know we don't want duplicated) rather than a broad `static\s+\w+` regex —
+that way legitimate uses survive without an allowlist: `static inline`
+functions, `static const` lookup tables, `static_assert(…)`, and anything
+PM/DT-generated all match neither alternation and pass through silently.
+
+**Where to wire it.** Three options, increasing in ceremony:
+
+1. **Documented manual script.** Add to `tools/`, mention in
+   `interface/README.md` or a new `tools/README.md`. Devs run it locally
+   when in doubt. Zero infrastructure cost, weakest signal.
+2. **CMake configure-time check.** Add a small block to
+   [../CMakeLists.txt](../CMakeLists.txt) that runs the script during the
+   CMake configure step. Same shape as the existing
+   `find_package(Python3 …)` + warn-or-skip pattern that we used for
+   `tools/gen_descriptors.py` — except this one *fails* the configure
+   when a hit is found, since the issue is correctness, not codegen
+   convenience.
+3. **Pre-commit / GitHub Action.** Native CI gating. Cleanest, but adds a
+   tooling layer the repo doesn't have yet.
+
+Option 2 is the smallest delta that actually gates `west build`. The
+configure step happens at every `west build -p auto` and on first
+`-p never` build after a CMakeLists change; the rest of the time the
+check is silent.
+
+**Verification.** Run the script on the current tree before wiring it —
+expectation: zero hits, because [1.6](#16-srp-buffer-entries-are-per-tu-duplicates--applied),
+[1.7](#17-unregistering-srp-services-silently-fails-slot-leak--applied),
+and the BLE-atomic followup all moved their respective `static`-in-header
+declarations to `extern` + single `.c` definition. If the script flags
+something we didn't already know about, that's a third instance and the
+check has paid for itself.
+
+**Affected.** New file `tools/check_no_static_in_header.sh`; small block
+added to [../CMakeLists.txt](../CMakeLists.txt) if option 2 is taken.
+No source files touched.
+
+**Effort:** S (the script is ~20 lines; CMake integration is ~5 more).
+**Risk:** very low — additive, with the failure path being a clearly
+explained build error rather than a runtime surprise.
+
+**Depends on:** nothing. Worth doing independently of the rest of Plan 01.

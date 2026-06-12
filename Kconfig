@@ -77,6 +77,8 @@ config LOKI_CLEAR_SETTINGS_NEW_BUILD
 
 endmenu
 
+menu "BLE advertising lifecycle"
+
 config LOKI_BLE_OFF_AFTER_ATTACH_MINUTES
 	int "Minutes to keep BLE advertising after a successful Thread attach"
 	default 5
@@ -89,5 +91,23 @@ config LOKI_BLE_OFF_AFTER_ATTACH_MINUTES
 	  disable the feature entirely (BLE advertising stays on indefinitely).
 	  A CoAP PUT to /ble-recovery resumes advertising for another window of
 	  the same length.
+
+config LOKI_BLE_RECOVERY_ON_SRP_FAIL
+	bool "Reopen BLE window automatically when SRP registration fails"
+	default y
+	help
+	  When enabled, every site that detects an SRP/DNS-SD registration
+	  failure — host-name set, auto-host-address mode, or any individual
+	  service allocation (short-name, long-name, DCC) — calls
+	  ble_lifecycle_force_recovery() to reopen the advertising window for
+	  CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES. The loco then stays
+	  reachable over GATT even while DNS-SD discovery is broken.
+
+	  Turn off to treat SRP outages silently and rely on the natural Thread
+	  detach path or the manual /ble-recovery CoAP endpoint to reopen BLE
+	  on demand. The /ble-recovery endpoint itself is NOT gated by this
+	  option — it always works regardless.
+
+endmenu
 
 

@@ -36,14 +36,36 @@ power on
    │        └─ no  ──► (Thread stays down)
    │
    └─ enable BLE  ──►  advertise Loki GATT service
+                          │
+                          ├─ Thread attached (CHILD/ROUTER/LEADER)
+                          │     └─ schedule stop in N min (default 5)
+                          │           └─ on timer ──► stop advertising
+                          │
+                          ├─ Thread detached     ──► resume advertising
+                          ├─ /ble-recovery (CoAP) ──► reopen window (fresh N min)
+                          └─ SRP registration fails (if gated on)
+                                                 ──► reopen window (fresh N min)
 ```
 
-The intended design is *BLE while unprovisioned, CoAP once joined to Thread*.
+The design is *BLE while unprovisioned, CoAP once joined to Thread*, with a
+grace window so a freshly-attached loco stays briefly reachable over GATT.
 
-> **Caveat — BLE is currently always on.** In [main.c:463-485](src/main.c#L463-L485)
-> the firmware enables BLE and starts advertising unconditionally at the end of
-> `main()`, regardless of commissioning state. If the intent is to disable BLE
-> after provisioning, that gating is not yet implemented.
+> **BLE lifecycle.** Implemented in [main_ble_utils.c](src/main_ble_utils.c)
+> via an `atomic_t ble_should_advertise` flag + `K_WORK_DELAYABLE` stop timer.
+> Three knobs:
+>
+> - `CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES` (default `5`, range `0..1440`):
+>   minutes after a successful Thread attach before advertising stops. `0`
+>   disables the auto-stop (BLE stays on).
+> - `CONFIG_LOKI_BLE_RECOVERY_ON_SRP_FAIL` (default `y`): reopen the window
+>   automatically when SRP host-name / auto-host-address / service-allocation
+>   calls fail.
+> - The CoAP `PUT /ble-recovery` endpoint is **not** gated by the Kconfig — a
+>   human asking for recovery always reopens the window.
+>
+> When the timer fires while a BLE client is connected, only new advertising
+> is stopped; the existing session is not kicked. Re-advertising resumes on
+> the next Thread detach, recovery request, or (gated) SRP failure.
 
 ### Identity & naming
 
@@ -176,6 +198,7 @@ Server start and resource registration: `loki_coap_init()`
 | `/direction` | PUT | 1 byte | — | [loki_coap_utils.c:422-451](src/loki_coap_utils.c#L422-L451) |
 | `/stop` | (any) | ignored | — | [loki_coap_utils.c:453-463](src/loki_coap_utils.c#L453-L463) |
 | `/name` | PUT | UTF-8 bytes | — | **defined but NOT registered — see caveat** |
+| `/ble-recovery` | PUT | ignored | — | reopens BLE advertising window for `CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES` (default 5 min). Not gated by `CONFIG_LOKI_BLE_RECOVERY_ON_SRP_FAIL` — always works. |
 
 Direction command values are enumerated in
 [interface/loki_server_client_interface.h](interface/loki_server_client_interface.h):

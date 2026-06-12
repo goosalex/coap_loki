@@ -626,6 +626,10 @@ int main(void)
 					openthread_get_default_instance(), full_name, SRP_LONGNAME_SERVICE);
 				if (long_name_coap_service == NULL) {
 					LOG_ERR("Failed to register long-name SRP service");
+					/* Keep BLE up so the loco is reachable while SRP
+					 * can't take the long-name registration. Gated by
+					 * CONFIG_LOKI_BLE_RECOVERY_ON_SRP_FAIL. */
+					ble_lifecycle_recover_on_srp_failure();
 				}
 			}
 		/* Boot path: dcc_address was loaded from NVM by load_settings_from_nvm().

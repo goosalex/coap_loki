@@ -1,5 +1,6 @@
 #include "main_loki.h"
 #include "main_ot_utils.h"
+#include "main_ble_utils.h"   /* for ble_lifecycle_force_recovery() on SRP failures */
 #include "motors/motor.h"
 #include "displays/main_display.h"
 #include <zephyr/logging/log.h>
@@ -157,6 +158,10 @@ void register_dcc_service(void)
 		p, dcc_string, SRP_LCN_SERVICE, SRP_LCN_PORT);
 	if (entry == NULL) {
 		LOG_ERR("Failed to allocate DCC SRP service entry");
+		/* Re-open the BLE window so the loco stays reachable while
+		 * SRP can't take the DCC registration. Gated by
+		 * CONFIG_LOKI_BLE_RECOVERY_ON_SRP_FAIL. */
+		ble_lifecycle_recover_on_srp_failure();
 		return;
 	}
 	dcc_name_coap_service = entry;

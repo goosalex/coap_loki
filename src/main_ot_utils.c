@@ -403,6 +403,7 @@ void init_srp() {
 			if (error != OT_ERROR_NONE) {
 				LOG_ERR("Cannot set SRP client host name: %s",
 						otThreadErrorToString(error));
+				ble_lifecycle_recover_on_srp_failure();
 				k_mutex_unlock(&srp_client_mutex);
 				return;
 			}
@@ -411,6 +412,7 @@ void init_srp() {
 		if (error != OT_ERROR_NONE) {
 			LOG_ERR("Cannot enable auto host address mode: %s",
 					otThreadErrorToString(error));
+			ble_lifecycle_recover_on_srp_failure();
 			k_mutex_unlock(&srp_client_mutex);
 			return;
 		} else {
@@ -432,6 +434,10 @@ void init_srp() {
 			entry = register_coap_service(p_instance, ble_name, SRP_SHORTNAME_SERVICE);
 			if (entry == NULL) {
 				LOG_ERR("Cannot allocate new service entry under %s", SRP_SHORTNAME_SERVICE);
+				/* Re-open the BLE recovery window so the loco stays
+				 * reachable over GATT while SRP is broken. Gated by
+				 * CONFIG_LOKI_BLE_RECOVERY_ON_SRP_FAIL. */
+				ble_lifecycle_recover_on_srp_failure();
 			} else {
 				LOG_INF("Service %s registered as %s", SRP_SHORTNAME_SERVICE, ble_name);
 				short_name_coap_service = entry;

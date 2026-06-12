@@ -428,9 +428,17 @@ K_WORK_DEFINE(start_advertising_work, start_advertising);
  * Default state on boot is "advertise". On a successful Thread attach the
  * stop work is scheduled for CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES, after
  * which advertising is halted. A Thread detach cancels the pending stop and
- * resumes advertising. A CoAP PUT to /ble-recovery (see loki_coap_utils)
- * forces a fresh window. Setting the Kconfig value to 0 disables the feature.
+ * resumes advertising. A CoAP PUT to /ble-recovery (see loki_coap_utils) or a
+ * call to ble_lifecycle_force_recovery() from any TU (e.g. OpenThread code on
+ * SRP registration failure) forces a fresh window. Setting the Kconfig value
+ * to 0 disables the feature.
+ *
+ * `ble_should_advertise` is the single shared atomic backing the intent flag,
+ * declared `extern` in main_ble_utils.h so other TUs may inspect it directly.
+ * Prefer the ble_lifecycle_* API where possible — those helpers also drive
+ * the stop work, which a raw atomic flip won't.
  */
+atomic_t ble_should_advertise = ATOMIC_INIT(1);
 
 static void ble_stop_handler(struct k_work *work)
 {
