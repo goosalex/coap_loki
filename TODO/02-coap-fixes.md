@@ -4,30 +4,22 @@ Covers the CoAP-side caveats from [../INTERFACES.md](../INTERFACES.md#coap-cavea
 
 ---
 
-## 2.1 `/name` resource is never registered
+## 2.1 `/name` resource is never registered — **applied**
 
-**Problem.** `name_resource` and `name_request_handler` exist, but
-`loki_coap_init()` neither assigns `srv_context.on_name_request` nor calls
-`otCoapAddResource()` for it — only speed, acceleration, direction and stop are
-added ([../src/loki_coap_utils.c:549-557](../src/loki_coap_utils.c#L549-L557)).
-So renaming over CoAP is a dead path.
+**Was.** `name_resource` and `name_request_handler` were defined, but
+`loki_coap_init()` neither assigned `srv_context.on_name_request` nor called
+`otCoapAddResource()` for it — only speed, acceleration, direction, and stop
+were added, so renaming over CoAP silently no-op'd.
 
-**Fix.** In `loki_coap_init()`:
+**Now.** `loki_coap_init()` in
+[../src/loki_coap_utils.c](../src/loki_coap_utils.c) wires both halves:
+`name_resource.mContext` / `name_resource.mHandler` are set, the resource is
+registered with `otCoapAddResource`, and `srv_context.on_name_request` is
+assigned from the init argument. `main()` passes `modify_full_name`, so a PUT
+to `/name` now actually drives the rename + SRP re-registration path.
 
-```c
-name_resource.mContext = srv_context.ot;
-name_resource.mHandler = name_request_handler;
-...
-otCoapAddResource(srv_context.ot, &name_resource);
-...
-srv_context.on_name_request = on_name_request;   /* currently missing */
-```
-
-Then fix the handler (see 2.4) so it actually reads the payload and calls the
-callback (`modify_full_name`).
-
-**Affected:** [../src/loki_coap_utils.c](../src/loki_coap_utils.c).
-**Effort:** S. **Risk:** low.
+The handler itself was a minefield until [2.4](#24-name_request_handler-leaks-and-mishandles-the-payload--applied)
+landed; the two fixes only make sense together.
 
 ---
 
@@ -84,32 +76,59 @@ would dereference garbage if ever called.
 
 ---
 
-## 2.4 `name_request_handler` leaks and ignores the payload
+## 2.4 `name_request_handler` leaks and mishandles the payload — **applied**
 
-**Problem.** `name_request_handler`
-([../src/loki_coap_utils.c:465-483](../src/loki_coap_utils.c#L465-L483))
-`malloc`s a buffer, never reads the message into it, never frees it, and passes
-the uninitialised buffer to the callback.
+**The picture.** When a CoAP `PUT /name` arrived, the handler reserved a buffer
+for "however big the message says it is", wrote a NUL one byte past the end of
+that buffer, asked OpenThread to dump the entire message — *including the CoAP
+header* — into it, then handed all of that to the rename callback. Whether the
+buffer itself leaked depended on whether the `malloc_free` typo (later
+`k_malloc`/`k_free`) ever linked. The pointer the callback got was technically
+valid; the *contents* and the *length* the callback was told to read were not.
 
-**Fix.** Read the payload into the buffer, call the callback, free it (or use a
-small stack buffer bounded by `MAX_LEN_FULL_NAME`):
+**Was.** Five overlapping problems in the same ~15-line function:
 
-```c
-uint16_t off = otMessageGetOffset(message);
-uint16_t len = otMessageGetLength(message) - off;
-if (len > MAX_LEN_FULL_NAME) len = MAX_LEN_FULL_NAME;
+1. `malloc_free` was an undefined symbol — `nm zephyr.elf` only knew `free`, and
+   no NCS/Zephyr/newlib header defined the name. The `.obj` was older than the
+   `.c`, so the link error was just queued for the next rebuild. (A subsequent
+   user-side rename to `k_malloc`/`k_free` closed this hole.)
+2. `char *buf = malloc(len); … buf[len] = '\0';` wrote one byte past the end of
+   the allocation — off-by-one heap corruption.
+3. `len = otMessageGetLength(message)` is the **total** message length including
+   the CoAP header. The payload starts at `otMessageGetOffset()`. Both the
+   allocation and the callback length argument were `total` instead of
+   `total - offset`, so the callback was told the name was longer than it was
+   and the header bytes were treated as name characters.
+4. `otMessageRead`'s return value (the actual byte count copied) was discarded;
+   short reads left the tail of the buffer uninitialised and forwarded that
+   garbage as part of the name.
+5. `malloc(len)` had no upper bound — a CoAP client could request an arbitrary
+   allocation off the system heap with one PUT.
 
-char buf[MAX_LEN_FULL_NAME + 1];
-otMessageRead(message, off, buf, len);
-buf[len] = '\0';
+**Now.** The handler in [../src/loki_coap_utils.c](../src/loki_coap_utils.c)
+`name_request_handler` is heap-free: it computes `avail = total - offset`,
+clamps to `MAX_LEN_FULL_NAME` with a `LOG_WRN`, reads into a stack
+`char buf[MAX_LEN_FULL_NAME + 1]`, honours the read return value, NUL-terminates
+in-bounds, and short-circuits cleanly when the payload is empty or the callback
+is `NULL`. The rename callback (`modify_full_name`) already copies into the
+persistent `full_name` array before returning, so the stack lifetime is fine.
 
-if (srv_context.on_name_request) {
-    srv_context.on_name_request(buf, len);
-}
-```
+The handler now includes the generated `loki_gatt.h` directly to get
+`MAX_LEN_FULL_NAME` rather than reaching for it through `main_ble_utils.h`,
+which keeps the dependency precise.
 
-**Affected:** [../src/loki_coap_utils.c](../src/loki_coap_utils.c).
-**Effort:** S. **Risk:** low. **Depends on:** 2.1.
+**Verification.**
+
+- [ ] `coap-client -N -m put -e "Keihan Otsu Line Type 700" coap://[<loco>]:5683/name`
+      → DNS-SD long-name advertisement updates to that string on next attach.
+- [ ] Empty PUT body → `LOG_WRN "Name request payload empty"`, no state change.
+- [ ] Oversize PUT (e.g. 200-byte body) → `LOG_WRN "Name payload N clamped …"`,
+      name set to first `MAX_LEN_FULL_NAME` bytes.
+- [ ] System heap usage no longer grows per rename (was at risk of permanent
+      leak whenever the linker resolved `malloc_free` to nothing at all).
+
+**Depends on:** [2.1](#21-name-resource-is-never-registered--applied) — without
+it this handler is never reached.
 
 ---
 

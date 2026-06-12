@@ -14,6 +14,7 @@
 #include <openthread/thread.h>
 #include <stdio.h>
 #include "loki_coap_utils.h"
+#include "loki_gatt.h"          /* MAX_LEN_FULL_NAME for name_request_handler */
 #include "main_loki.h"
 #include <openthread/srp_client.h>
 #include <openthread/srp_client_buffers.h>
@@ -477,20 +478,41 @@ static void name_request_handler(void *context, otMessage *message,
 				  const otMessageInfo *message_info)
 {
 	ARG_UNUSED(context);
-
 	ARG_UNUSED(message_info);
 
 	LOG_INF("Received name request");
-	
-	uint16_t len = otMessageGetLength(message);
-	uint16_t offset = otMessageGetOffset(message);
-	char *buf = malloc(len);
-	if (buf == NULL) {
-		LOG_ERR("Failed to allocate memory for name request");
+
+	if (srv_context.on_name_request == NULL) {
 		return;
 	}
 
-	srv_context.on_name_request(buf, len);
+	/* otMessageGetLength returns the total message length including the CoAP
+	 * header; the payload starts at otMessageGetOffset(). */
+	uint16_t offset = otMessageGetOffset(message);
+	uint16_t total  = otMessageGetLength(message);
+	uint16_t avail  = (total > offset) ? (total - offset) : 0;
+
+	if (avail == 0) {
+		LOG_WRN("Name request payload empty");
+		return;
+	}
+	if (avail > MAX_LEN_FULL_NAME) {
+		LOG_WRN("Name payload %u clamped to MAX_LEN_FULL_NAME (%u)",
+			avail, MAX_LEN_FULL_NAME);
+		avail = MAX_LEN_FULL_NAME;
+	}
+
+	/* Stack-allocate; the callback (modify_full_name) copies into the
+	 * persistent full_name array before returning. No heap, no leak path. */
+	char buf[MAX_LEN_FULL_NAME + 1];
+	uint16_t got = otMessageRead(message, offset, buf, avail);
+	if (got == 0) {
+		LOG_ERR("Name request read failed");
+		return;
+	}
+	buf[got] = '\0';
+
+	srv_context.on_name_request(buf, got);
 }
 
 static void ble_recovery_request_handler(void *context, otMessage *message,
