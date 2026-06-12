@@ -2,6 +2,10 @@
 *.swp
 *~
 
+# tooling
+__pycache__/
+*.pyc
+
 # build
 /build*/
 .vscode/

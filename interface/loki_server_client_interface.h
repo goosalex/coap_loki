@@ -7,20 +7,9 @@
 #ifndef __LOKI_SERVER_CLIENT_INTRFACE_H__
 #define __LOKI_SERVER_CLIENT_INTRFACE_H__
 
-#define COAP_PORT 5683
-
-/**@brief Enumeration describing directions commands. */
-enum direction_command {
-	THREAD_LOKI_UTILS_LIGHT_CMD_STOP = '0',
-	THREAD_LOKI_UTILS_LIGHT_CMD_FORWARD = '1',
-	THREAD_LOKI_UTILS_LIGHT_CMD_REVERSE = '2'
-};
-
-#define SPEED_URI_PATH "speed"
-#define ACC_URI_PATH "acceleration"
-#define DIRECTION_URI_PATH "direction"
-#define STOP_URI_PATH "stop"
-#define NAME_URI_PATH "name"
-#define BLE_RECOVERY_URI_PATH "ble-recovery"
+/* COAP_PORT, the *_URI_PATH macros and `enum direction_command` are generated
+ * from interface/coap.yaml by tools/gen_descriptors.py. Edit the YAML, not
+ * the generated header. */
+#include "loki_coap.h"
 
 #endif

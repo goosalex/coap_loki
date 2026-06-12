@@ -36,67 +36,13 @@ static struct bt_conn *default_conn;
 
 LOG_MODULE_REGISTER(loki_ble, CONFIG_COAP_SERVER_LOG_LEVEL);
 
-/* Loki Service UUIDs using BT_UUID_DECLARE_128 macro */
-// loki_service_uuid formatted as UUID is fcbd0001-5e25-4387-99b7-53a5495a0c35
-#define LOKI_SERVICE_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0001, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_SERVICE_UUID \
-    BT_UUID_DECLARE_128(LOKI_SERVICE_UUID_VAL)
-
-// Speed characteristic
-// formatted as UUID is fcbd0002-5e25-4387-99b7-53a5495a0c35
-#define LOKI_SPEED_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0002, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_SPEED_UUID \
-    BT_UUID_DECLARE_128(LOKI_SPEED_UUID_VAL)
-
-// Accelerate characteristic
-// formatted as UUID is fcbd0003-5e25-4387-99b7-53a5495a0c35
-#define LOKI_ACCELERATE_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0003, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_ACCELERATE_UUID \
-    BT_UUID_DECLARE_128(LOKI_ACCELERATE_UUID_VAL)
-
-// PWM characteristic
-// formatted as UUID is fcbd0004-5e25-4387-99b7-53a5495a0c35
-#define LOKI_PWM_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0004, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_PWM_UUID \
-    BT_UUID_DECLARE_128(LOKI_PWM_UUID_VAL)
-
-// Direction characteristic
-// formatted as UUID is fcbd0005-5e25-4387-99b7-53a5495a0c35
-#define LOKI_DIRECTION_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0005, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_DIRECTION_UUID \
-    BT_UUID_DECLARE_128(LOKI_DIRECTION_UUID_VAL)
-
-// Long Name characteristic
-// formatted as UUID is fcbd0006-5e25-4387-99b7-53a5495a0c35
-#define LOKI_NAME_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0006, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_NAME_UUID \
-    BT_UUID_DECLARE_128(LOKI_NAME_UUID_VAL)
-
-// virtual (DCC) address characteristic
-// formatted as UUID is fcbd0007-5e25-4387-99b7-53a5495a0c35
-#define LOKI_DCC_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0007, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_DCC_UUID \
-    BT_UUID_DECLARE_128(LOKI_DCC_UUID_VAL)
-
-// OpenThread Joiner Credential
-// see https://openthread.io/guides/border-router/external-commissioning/prepare#prepare_the_joiner_device
-// formatted as UUID is fcbd000a-5e25-4387-99b7-53a5495a0c35
-#define LOKI_CREDENTIAL_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd000a, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_CREDENTIAL_UUID \
-    BT_UUID_DECLARE_128(LOKI_CREDENTIAL_UUID_VAL)
-
-#define LOKI_BLE_NAME_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd000b, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_BLE_NAME_UUID \
-    BT_UUID_DECLARE_128(LOKI_BLE_NAME_UUID_VAL)
+/* GATT service + characteristic UUID macros (LOKI_*_UUID_VAL / LOKI_*_UUID)
+ * come from interface/gatt.yaml via tools/gen_descriptors.py — included
+ * transitively through main_ble_utils.h → loki_gatt.h.
+ *
+ * See the OpenThread joiner-credential docs for the credential characteristic:
+ *   https://openthread.io/guides/border-router/external-commissioning/prepare#prepare_the_joiner_device
+ */
 
 
 

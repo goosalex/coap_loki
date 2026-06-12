@@ -1,4 +1,8 @@
-# 04 — Machine-readable descriptors: where to put them
+# 04 — Machine-readable descriptors — **applied (Option B)**
+
+> Status: Option B (YAML is source of truth, C headers are generated) landed
+> directly. The plan content below is preserved for reference; the
+> [Outcome](#outcome) section at the bottom records what actually shipped.
 
 Goal: ship machine-readable descriptors for the **GATT** service and the **CoAP**
 resource set so that clients (and CI, and this repo's docs) have a single,
@@ -112,3 +116,72 @@ This makes Option A safe and is reusable as the validation half of Option B.
 
 **Effort:** S for A (+ check); M–L for B. **Risk:** low (additive; no runtime
 behaviour change until B).
+
+---
+
+## Outcome
+
+Option B landed end-to-end. The work-items checklist above is
+**superseded** by what's actually in the tree:
+
+### Files added
+
+- [../interface/gatt.yaml](../interface/gatt.yaml) — GATT service, 8
+  characteristics, BLE name caps, default prefix.
+- [../interface/coap.yaml](../interface/coap.yaml) — CoAP port, 6 resources,
+  direction enum.
+- [../interface/generated/loki_gatt.h](../interface/generated/loki_gatt.h),
+  [../interface/generated/loki_coap.h](../interface/generated/loki_coap.h)
+  — auto-generated, committed for offline builds.
+- [../tools/gen_descriptors.py](../tools/gen_descriptors.py) — the codegen.
+  Idempotent (only rewrites a header when content changes), warn-and-skip on
+  missing prereqs.
+- [../interface/README.md](../interface/README.md) — explains the contract
+  layout and how to change a value.
+
+### Files rewired (firmware now consumes the generated headers)
+
+- [../src/main_ble_utils.h](../src/main_ble_utils.h) — `MAX_LEN_*` /
+  `DEFAULT_NAME_PREFIX` replaced by `#include "loki_gatt.h"`.
+- [../src/main_ble_utils.c](../src/main_ble_utils.c) — ~60 lines of
+  `LOKI_*_UUID*` `#define`s deleted; UUIDs now come transitively from the
+  generated header.
+- [../interface/loki_server_client_interface.h](../interface/loki_server_client_interface.h)
+  — `COAP_PORT`, `*_URI_PATH` macros, and `enum direction_command` replaced
+  by `#include "loki_coap.h"`. Consumers keep including the same wrapper.
+- [../CMakeLists.txt](../CMakeLists.txt) — `interface/generated` added to
+  the include path; a `find_package(Python3 3.8 …)` + `add_custom_command` +
+  `add_custom_target(loki_gen_descriptors ALL …)` block regenerates the
+  headers on every full build. Missing/old Python emits a CMake `WARNING`
+  and proceeds.
+
+### Failure modes verified
+
+- **Python ≥ 3.8 + PyYAML present** → headers regenerated when YAML or script
+  changes (`write_if_changed` keeps mtimes stable when content matches).
+- **Python missing or < 3.8 at configure time** → CMake `message(WARNING …)`,
+  codegen target not registered, build proceeds with the checked-in headers.
+- **Python OK but PyYAML missing at build time** → script emits two stderr
+  warnings, exits 0; existing headers are kept. CMake sees the outputs as
+  up-to-date (no `OUTPUT` file was touched) and proceeds.
+- **Bytewise equivalence with the previous hand-written macros** — verified
+  by inspection across the 9 GATT UUIDs, the 6 CoAP URI paths, `COAP_PORT
+  5683`, the direction enum (`'0'`/`'1'`/`'2'`), the BLE name caps (8, 63),
+  and `DEFAULT_NAME_PREFIX "TREN"`.
+
+### Followups (not blocking)
+
+- The CI consistency check that was the safety net for Option A is no longer
+  necessary — the headers can't diverge from the YAML because they are
+  generated from it. The Option A check would now be useful only as a
+  "did anyone hand-edit the generated header?" guard; cheap to add later.
+- Once `coap.yaml` is the single source of truth for resource paths, the
+  same data can drive the `/.well-known/core` link-format string
+  ([02 §2.5](02-coap-fixes.md#25-no-coap-resource-discovery-well-knowncore))
+  and the DNS-SD `rt=` TXT record
+  ([03 §3.3](03-dns-sd-discovery.md#33-no-txt-records)). Both become a
+  follow-on render in `gen_descriptors.py`.
+- Likewise, `gatt.yaml`'s `type`/`unit`/`max_len`/`range` fields are not yet
+  consumed by the C code (only UUIDs and naming caps are). The natural next
+  step is generating CUD/CPF descriptor literals for the BLE service so
+  generic GATT clients render unit/format info ([01 §1.x](01-ble-gatt-fixes.md)).

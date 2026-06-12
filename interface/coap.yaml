@@ -1,0 +1,57 @@
+# Source-of-truth descriptor for the Loki CoAP control interface.
+# Consumed by tools/gen_descriptors.py at build time to regenerate
+# interface/generated/loki_coap.h. Edit this file, not the generated header.
+
+port: 5683                  # rendered as `#define COAP_PORT 5683`
+
+resources:
+  - name: speed
+    path: speed
+    c_symbol: SPEED_URI_PATH
+    methods: [GET, PUT]
+    type: uint8
+    range: [0, 255]
+    rt: loki.speed
+
+  - name: acceleration
+    path: acceleration
+    c_symbol: ACC_URI_PATH
+    methods: [GET, PUT]
+    type: int8
+    rt: loki.accel
+
+  - name: direction
+    path: direction
+    c_symbol: DIRECTION_URI_PATH
+    methods: [PUT]
+    type: uint8
+    rt: loki.direction
+
+  - name: stop
+    path: stop
+    c_symbol: STOP_URI_PATH
+    methods: [PUT]
+    rt: loki.stop
+
+  - name: name
+    path: name
+    c_symbol: NAME_URI_PATH
+    methods: [PUT]
+    type: utf8
+    rt: loki.name
+
+  - name: ble_recovery
+    path: ble-recovery
+    c_symbol: BLE_RECOVERY_URI_PATH
+    methods: [PUT]
+    rt: loki.ble-recovery
+
+# Direction command bytes mirrored as enum direction_command (used by both
+# BLE direction writes and the future CoAP /direction PUT body).
+direction_enum:
+  c_name: direction_command
+  # Values are character literals — emitted verbatim into the C enum.
+  values:
+    - { c_symbol: THREAD_LOKI_UTILS_LIGHT_CMD_STOP,    value: "'0'" }
+    - { c_symbol: THREAD_LOKI_UTILS_LIGHT_CMD_FORWARD, value: "'1'" }
+    - { c_symbol: THREAD_LOKI_UTILS_LIGHT_CMD_REVERSE, value: "'2'" }

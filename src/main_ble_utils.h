@@ -1,10 +1,10 @@
 #ifndef MAIN_LOKI_BLE_H
 #define MAIN_LOKI_BLE_H
 
-
-#define MAX_LEN_FULL_NAME 63
-#define MAX_LEN_BLE_NAME 8
-#define DEFAULT_NAME_PREFIX  "TREN"
+/* GATT service/characteristic UUIDs + BLE naming caps are generated from
+ * interface/gatt.yaml by tools/gen_descriptors.py. Edit the YAML, not the
+ * generated header. */
+#include "loki_gatt.h"
 
  extern char ble_name[MAX_LEN_BLE_NAME+1]; // = e.g. "TREN0234" in   main_ble_utils.c
  extern char full_name[MAX_LEN_FULL_NAME+1]; // = e.g. "Keihan Otsu Line Type 700 [Sound! Euphonium] Wrapping Train 2023" in main_ble_utils.c

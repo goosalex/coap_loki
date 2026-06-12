@@ -1,0 +1,71 @@
+# Source-of-truth descriptor for the Loki BLE GATT control service.
+# Consumed by tools/gen_descriptors.py at build time to regenerate
+# interface/generated/loki_gatt.h. Edit this file, not the generated header.
+
+service:
+  name: Loki Control
+  uuid: fcbd0001-5e25-4387-99b7-53a5495a0c35
+  c_prefix: LOKI            # produces LOKI_SERVICE_UUID_VAL / LOKI_SERVICE_UUID
+
+# BLE naming constraints. Used both for documentation and for the
+# MAX_LEN_BLE_NAME / MAX_LEN_FULL_NAME / DEFAULT_NAME_PREFIX C macros.
+ble_name:
+  default_prefix: TREN
+  max_short: 8
+  max_full: 63
+
+characteristics:
+  - name: speed
+    c_symbol: SPEED         # → LOKI_SPEED_UUID_VAL / LOKI_SPEED_UUID
+    uuid: fcbd0002-5e25-4387-99b7-53a5495a0c35
+    properties: [read, write, notify]
+    type: uint8
+    range: [0, 255]
+
+  - name: acceleration
+    c_symbol: ACCELERATE
+    uuid: fcbd0003-5e25-4387-99b7-53a5495a0c35
+    properties: [read, write]
+    type: int8
+    unit: steps_per_second
+
+  - name: pwm_base
+    c_symbol: PWM
+    uuid: fcbd0004-5e25-4387-99b7-53a5495a0c35
+    properties: [read, write]
+    type: uint16le
+    unit: hertz
+
+  - name: direction
+    c_symbol: DIRECTION
+    uuid: fcbd0005-5e25-4387-99b7-53a5495a0c35
+    properties: [read, write]
+    type: uint8
+    enum: { stop: 0, forward: 1, reverse: 2 }
+
+  - name: long_name
+    c_symbol: NAME
+    uuid: fcbd0006-5e25-4387-99b7-53a5495a0c35
+    properties: [read, write]
+    type: utf8
+    max_len: 63             # mirrored as MAX_LEN_FULL_NAME
+
+  - name: dcc_address
+    c_symbol: DCC
+    uuid: fcbd0007-5e25-4387-99b7-53a5495a0c35
+    properties: [read, write]
+    type: uint16le
+
+  - name: joiner_credential
+    c_symbol: CREDENTIAL
+    uuid: fcbd000a-5e25-4387-99b7-53a5495a0c35
+    properties: [read, write]
+    read: eui64_hex                       # GET returns 16-char EUI64 hex
+    write: thread_joiner_passphrase       # PUT triggers otJoinerStart, 6..32 chars
+
+  - name: short_name
+    c_symbol: BLE_NAME
+    uuid: fcbd000b-5e25-4387-99b7-53a5495a0c35
+    properties: [read, write]
+    type: utf8
+    max_len: 8              # mirrored as MAX_LEN_BLE_NAME
