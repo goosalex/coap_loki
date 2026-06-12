@@ -222,6 +222,11 @@ def main() -> None:
     except yaml.YAMLError as e:  # type: ignore[attr-defined]
         fatal(f"YAML parse error: {e}")
 
+    if not isinstance(gatt_doc, dict):
+        fatal("interface/gatt.yaml must have a mapping (dict) at the document root")
+    if not isinstance(coap_doc, dict):
+        fatal("interface/coap.yaml must have a mapping (dict) at the document root")
+
     gatt_header = render_gatt(gatt_doc)
     coap_header = render_coap(coap_doc)
 
