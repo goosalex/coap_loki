@@ -4,7 +4,7 @@
 #include "motors/motor.h"
 #include "displays/main_display.h"
 #include <zephyr/logging/log.h>
-#include <zephyr/net/openthread.h>   /* openthread_api_mutex_{lock,unlock} */
+#include <openthread.h>              /* openthread_mutex_{lock,unlock} (void-arg, non-deprecated) */
 #include <zephyr/settings/settings.h>
 #include <string.h>
 #include <stdio.h>
@@ -134,9 +134,8 @@ void change_direction(uint8_t new_pattern){
 void register_dcc_service(void)
 {
 	otInstance *p = openthread_get_default_instance();
-	struct openthread_context *ot_context = openthread_get_default_context();
-	if (p == NULL || ot_context == NULL) {
-		LOG_WRN("DCC SRP register skipped: no OpenThread instance/context");
+	if (p == NULL) {
+		LOG_WRN("DCC SRP register skipped: no OpenThread instance");
 		return;
 	}
 
@@ -144,7 +143,7 @@ void register_dcc_service(void)
 	 * (via apply_dcc_address), and potentially from a future CoAP handler
 	 * on the OT thread. Hold the OT API mutex for the duration. The OT
 	 * mutex is recursive, so a future caller already holding it is fine. */
-	openthread_api_mutex_lock(ot_context);
+	openthread_mutex_lock();
 
 	/* Tear down any previous registration so SRP slots are not leaked when
 	 * the DCC address is changed at runtime. */
@@ -156,7 +155,7 @@ void register_dcc_service(void)
 
 	if (dcc_address == 0) {
 		LOG_INF("DCC unset; no SRP registration");
-		openthread_api_mutex_unlock(ot_context);
+		openthread_mutex_unlock();
 		return;
 	}
 
@@ -167,7 +166,7 @@ void register_dcc_service(void)
 		p, dcc_string, SRP_LCN_SERVICE, SRP_LCN_PORT);
 	if (entry == NULL) {
 		LOG_ERR("Failed to allocate DCC SRP service entry");
-		openthread_api_mutex_unlock(ot_context);
+		openthread_mutex_unlock();
 		/* Re-open the BLE window so the loco stays reachable while
 		 * SRP can't take the DCC registration. Gated by
 		 * CONFIG_LOKI_BLE_RECOVERY_ON_SRP_FAIL. */
@@ -181,7 +180,7 @@ void register_dcc_service(void)
 	LOG_INF("UDP port %d is listening for LNet messages addressing #%s",
 		SRP_LCN_PORT, dcc_string);
 
-	openthread_api_mutex_unlock(ot_context);
+	openthread_mutex_unlock();
 }
 
 void apply_dcc_address(uint16_t new_dcc)

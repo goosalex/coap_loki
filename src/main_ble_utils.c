@@ -136,8 +136,8 @@ static void speed_ccc_cfg_changed(const struct bt_gatt_attr *attr,
 static _ssize_t read_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
               void *buf, uint16_t len, uint16_t offset)
 {
-    char *name = getBleLongName();
-    return bt_gatt_attr_read(conn, attr, buf, len, offset, name, strlen(name));                     
+    const char *name = getBleLongName();
+    return bt_gatt_attr_read(conn, attr, buf, len, offset, name, strlen(name));
 }
 
 static _ssize_t write_name(struct bt_conn *conn,
@@ -167,8 +167,8 @@ static _ssize_t write_name(struct bt_conn *conn,
 static _ssize_t read_ble_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			  void *buf, uint16_t len, uint16_t offset)
 {
-	char *name = getBleShortName();
-	return bt_gatt_attr_read(conn, attr, buf, len, offset, name, strlen(name));                     
+	const char *name = getBleShortName();
+	return bt_gatt_attr_read(conn, attr, buf, len, offset, name, strlen(name));
 }
 
 
@@ -376,7 +376,7 @@ printk("Changed device name to: %s\n", newName);
 }
 
  int updateBleShortName(char *newName) {
-  int err;
+  int err = 0;
   /* Advertising data */
 // Problem: The payload is limited to 31 bytes, so the name shound not be too long
 // and as this is a custom service, a 16 Byte UUID is needed
@@ -499,9 +499,8 @@ void ble_lifecycle_force_recovery(void)
 }
 /* ---------------------------------------------------------------------------*/
 
- char *getBleLongName() {
-  char *name = bt_get_name();
-  return name;
+ const char *getBleLongName(void) {
+  return bt_get_name();
 }
 
 
@@ -526,9 +525,9 @@ void bt_submit_refresh_advertising_data_work() {
 }
 
 
- char *getBleShortName() {
+ const char *getBleShortName(void) {
 	int ad_name_idx = BLE_ADV_DATA_NAME_IDX;
-  return ad[ad_name_idx].data;
+  return (const char *)ad[ad_name_idx].data;
 }
 
 void bt_notify_speed(void)

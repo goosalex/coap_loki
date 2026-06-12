@@ -12,8 +12,8 @@
  extern char full_name[MAX_LEN_FULL_NAME+1]; // = e.g. "Keihan Otsu Line Type 700 [Sound! Euphonium] Wrapping Train 2023" in main_ble_utils.c
  extern uint16_t dcc_address; // main_loki.h
 
- char *getBleShortName();
- char *getBleLongName();
+ const char *getBleShortName(void);
+ const char *getBleLongName(void);
  int updateBleLongName(char *newName);
  int updateBleShortName(char *newName);
  int get_Eui64(char *printable);
@@ -31,6 +31,12 @@ extern atomic_t ble_should_advertise;
 extern void bt_notify_speed(void);
 extern void bt_register(void);
 extern int bt_ready(void);
+
+/* Rename helpers — defined in main.c (where the loki settings handlers live).
+ * Declared here so main_ble_utils.c's write_ble_name handler doesn't fall back
+ * to an implicit-int declaration. */
+int modify_short_name(char *buf, uint16_t len);
+void modify_full_name(char *buf, uint16_t len);
 
 /* BLE advertising lifecycle controller.
  * Drives the "BLE off after a successful Thread attach" behavior governed by

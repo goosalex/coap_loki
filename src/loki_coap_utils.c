@@ -234,9 +234,12 @@ static void speed_request_handler(void *context, otMessage *request_message,
            FLASH:      656124 B         1 MB     62.57%
              RAM:      131020 B       256 KB     49.98%
 		*/
-		sscanf(speed_input_value, "%d", &value);
-		
-		LOG_INF("Received direct speed request: %d", value);		
+		/* %hhu = unsigned char, which matches uint8_t — silences the
+		 * format/type warning. The whole sscanf goes away when 2.6 lands
+		 * the newlib-free decimal parser. */
+		sscanf(speed_input_value, "%hhu", &value);
+
+		LOG_INF("Received direct speed request: %u", value);
 		srv_context.on_speed_request(value);
 	}
 	else if (otCoapMessageGetCode(request_message) == OT_COAP_CODE_GET)

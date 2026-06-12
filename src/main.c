@@ -37,6 +37,7 @@
 #include <inttypes.h>
 
 #include <zephyr/net/openthread.h>
+#include <openthread.h>           /* openthread_mutex_lock/unlock (the non-deprecated, void-arg API) */
 #include <openthread/thread.h>
 #include <openthread/srp_client.h>
 #include <openthread/srp_client_buffers.h>
@@ -109,11 +110,16 @@ struct app_version {
     uint8_t patch;
 };
 
+#ifdef CONFIG_NVS
+/* Only referenced from init_and_optionally_clear_nvs(), which is itself
+ * gated on LOKI_HAS_NVS_STORAGE (CONFIG_NVS + chosen zephyr,storage). On
+ * builds without NVS this would be a -Wunused-function warning. */
 static bool semver_major_minor_changed(const struct app_version *a,
                                        const struct app_version *b)
 {
     return (a->major != b->major) || (a->minor != b->minor);
 }
+#endif
 
 #ifdef CONFIG_NVS
 static struct nvs_fs nvs;
@@ -606,8 +612,7 @@ int main(void)
 		 * thread, so wrap them in the OT API mutex. enable_thread / init_srp /
 		 * register_dcc_service take the mutex themselves; the recursive
 		 * k_mutex makes the nesting safe. */
-		struct openthread_context *ot_ctx = openthread_get_default_context();
-		openthread_api_mutex_lock(ot_ctx);
+		openthread_mutex_lock();
 		if (loki_coap_init(
 			change_speed_directly,
 			speed_set_acceleration,
@@ -639,7 +644,7 @@ int main(void)
 					ble_lifecycle_recover_on_srp_failure();
 				}
 			}
-		openthread_api_mutex_unlock(ot_ctx);
+		openthread_mutex_unlock();
 		/* Boot path: dcc_address was loaded from NVM by load_settings_from_nvm().
 		 * The helper handles the "unset" (0) case and frees stale entries. */
 		register_dcc_service();
