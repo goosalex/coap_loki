@@ -578,12 +578,14 @@ int loki_coap_init(
 	otCoapAddResource(srv_context.ot, &acceleration_resource);
 	otCoapAddResource(srv_context.ot, &direction_resource);
 	otCoapAddResource(srv_context.ot, &stop_resource);
+	otCoapAddResource(srv_context.ot, &name_resource);
 	otCoapAddResource(srv_context.ot, &ble_recovery_resource);
 
 	srv_context.on_speed_request = on_speed_request;
 	srv_context.on_acceleration_request = on_acceleration_request;
 	srv_context.on_direction_request = on_direction_request;
 	srv_context.on_stop_request = on_stop_request;
+	srv_context.on_name_request = on_name_request;
 	srv_context.on_ble_recovery_request = on_ble_recovery_request;
 
 	error = otCoapStart(srv_context.ot, COAP_PORT);
