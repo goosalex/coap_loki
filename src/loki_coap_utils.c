@@ -264,7 +264,7 @@ static void speed_request_handler(void *context, otMessage *request_message,
 		{
 			goto end_response;
 		}
-		if (/* FIXME: getContentFormat(request_message) */ 0 == OT_COAP_OPTION_CONTENT_FORMAT_TEXT_PLAIN) {
+		if (getContentFormat(request_message) == OT_COAP_OPTION_CONTENT_FORMAT_TEXT_PLAIN) {
 		
 			error = otCoapMessageAppendContentFormatOption(response, OT_COAP_OPTION_CONTENT_FORMAT_TEXT_PLAIN);
 			if (error != OT_ERROR_NONE)
@@ -321,27 +321,36 @@ end:
 
 static otCoapOptionContentFormat getContentFormat(otMessage *request_message)
 {
-	otCoapOptionContentFormat content_format = 0; // TEXT_PLAIN by default
-	otCoapOptionIterator *iterator;
-	otCoapOption *option;
+	/* Default to text/plain when the option is absent, matches what most
+	 * CoAP clients assume when they don't set Content-Format. */
+	otCoapOptionContentFormat content_format =
+		OT_COAP_OPTION_CONTENT_FORMAT_TEXT_PLAIN;
+
+	/* Iterator lives on the stack — the previous version dereferenced an
+	 * uninitialised pointer. */
+	otCoapOptionIterator iterator;
+	const otCoapOption *option;
 	otError error;
-	LOG_INF("Getting content format option");
-	otCoapOptionIteratorInit(iterator, request_message);
-	LOG_INF("Iterator Init done");
-	option = otCoapOptionIteratorGetFirstOptionMatching(iterator,OT_COAP_OPTION_CONTENT_FORMAT);
-	LOG_INF("Option found");
-	if (option == NULL) return content_format;
-	
-	if (option->mNumber == OT_COAP_OPTION_CONTENT_FORMAT)
-	{
-		error = otCoapOptionIteratorGetOptionValue(iterator, &content_format);					
-		if (error != OT_ERROR_NONE)
-		{
-			LOG_ERR("Failed to get content format option");
-			return 0;
-		}
+
+	error = otCoapOptionIteratorInit(&iterator, request_message);
+	if (error != OT_ERROR_NONE) {
+		return content_format;
 	}
-	return content_format;
+
+	option = otCoapOptionIteratorGetFirstOptionMatching(
+		&iterator, OT_COAP_OPTION_CONTENT_FORMAT);
+	if (option == NULL) {
+		return content_format;
+	}
+
+	/* Content-Format is encoded as a CoAP uint option. */
+	uint64_t raw = 0;
+	error = otCoapOptionIteratorGetOptionUintValue(&iterator, &raw);
+	if (error != OT_ERROR_NONE) {
+		LOG_WRN("Failed to read content-format option: %d", error);
+		return content_format;
+	}
+	return (otCoapOptionContentFormat)raw;
 }
 
 static void acceleration_request_handler(void *context, otMessage *request_message,
@@ -388,8 +397,13 @@ static void acceleration_request_handler(void *context, otMessage *request_messa
 			goto end_response;
 		}
 
-		payload = speed_value;
-		payload_size = sizeof(speed_value);
+		/* GET /acceleration returns the current acceleration order. Until
+		 * 2.6 lands a generic numeric handler, this branch is the only
+		 * place that read accel_order; the previous `payload = speed_value`
+		 * (an int assigned to a `const void *`) silently returned the
+		 * speed instead. */
+		payload = &accel_order;
+		payload_size = sizeof(accel_order);
 
 		error = otMessageAppend(response, payload, payload_size);
 		if (error != OT_ERROR_NONE)
@@ -402,13 +416,13 @@ static void acceleration_request_handler(void *context, otMessage *request_messa
 		{
 			goto end_response;
 		}
-		LOG_INF("Sent direct speed response: %d", speed_value);
+		LOG_INF("Sent acceleration response: %d", accel_order);
 
 	end_response:
 		if (error != OT_ERROR_NONE && response != NULL)
 		{
 			otMessageFree(response);
-			LOG_ERR("Failed to send direct speed response");
+			LOG_ERR("Failed to send acceleration response");
 		}
 
 		goto end;

@@ -23,56 +23,79 @@ landed; the two fixes only make sense together.
 
 ---
 
-## 2.2 `/acceleration` GET returns speed, not acceleration
+## 2.2 `/acceleration` GET returns speed, not acceleration — **applied**
 
-**Problem.** The GET branch sets `payload = speed_value;` (an `int` assigned to a
-`const void *`) and appends it
-([../src/loki_coap_utils.c:379-393](../src/loki_coap_utils.c#L379-L393)). The log
-line even says "Sent direct speed response". So GET `/acceleration` returns the
-speed value via a bogus pointer.
+**Was.** The GET branch did `payload = speed_value;` — an `int` assigned to a
+`const void *` — and appended `sizeof(speed_value)` bytes. The log line
+literally said `"Sent direct speed response"` from inside the *acceleration*
+handler. Whether the wire bytes were the actual speed depended on calling
+convention and integer width; the only certainty was that `accel_order` was
+never read.
 
-**Fix.** Return the acceleration order by address, with its real size:
+**Now.** [loki_coap_utils.c acceleration_request_handler](../src/loki_coap_utils.c)
+takes `&accel_order` with `sizeof(accel_order)` (1 byte, `int8_t`) and the log
+line is `"Sent acceleration response: %d"` on `accel_order`. A short comment
+in-line marks this as a stop-gap until [2.6](#26-unify-speed--acceleration-into-one-generic-numeric-handler)
+collapses the speed and acceleration handlers into one — at which point this
+whole branch and the duplicated GET-response boilerplate disappear.
 
-```c
-const void *payload = &accel_order;          /* int8_t */
-uint16_t payload_size = sizeof(accel_order);
-...
-LOG_INF("Sent acceleration response: %d", accel_order);
-```
+**Verification.**
 
-Consider a shared helper for the GET response boilerplate (token, payload marker,
-append, send) — it is duplicated across the speed and acceleration handlers.
-
-**Affected:** [../src/loki_coap_utils.c](../src/loki_coap_utils.c).
-**Effort:** S. **Risk:** low.
+- [ ] `coap-client -N -m get coap://[<loco>]:5683/acceleration` returns the
+      current `accel_order` byte (try `0`, `+5`, `-3`).
+- [ ] Acceleration writes followed by GETs show the updated value, not
+      whatever speed happens to be.
 
 ---
 
-## 2.3 Content-format negotiation is stubbed; iterator is uninitialised
+## 2.3 Content-format negotiation is stubbed; iterator is uninitialised — **applied**
 
-**Problem.** The Speed GET path hard-codes the text/plain branch via
-`0 == OT_COAP_OPTION_CONTENT_FORMAT_TEXT_PLAIN`
-([../src/loki_coap_utils.c:255](../src/loki_coap_utils.c#L255)), bypassing
-`getContentFormat()`. `getContentFormat()` itself calls
-`otCoapOptionIteratorInit(iterator, ...)` on an **uninitialised pointer**
-([../src/loki_coap_utils.c:310-333](../src/loki_coap_utils.c#L310-L333)) — it
-would dereference garbage if ever called.
+**Was.** Two coupled defects:
 
-**Fix.**
+- The Speed GET handler hard-coded the text/plain branch via
+  `0 == OT_COAP_OPTION_CONTENT_FORMAT_TEXT_PLAIN` — a tautology that bypassed
+  `getContentFormat()` entirely.
+- `getContentFormat()` itself called `otCoapOptionIteratorInit(iterator, ...)`
+  on an *uninitialised pointer* (`otCoapOptionIterator *iterator;`), which
+  would have dereferenced garbage the first time anyone actually called it.
+  It also logged `"Getting content format option" / "Iterator Init done" /
+  "Option found"` on every invocation.
 
-1. Give the iterator storage and pass its address:
-   ```c
-   otCoapOptionIterator iterator;
-   otCoapOptionIteratorInit(&iterator, request_message);
-   ```
-2. Re-enable real negotiation in the speed handler:
-   ```c
-   if (getContentFormat(request_message) == OT_COAP_OPTION_CONTENT_FORMAT_TEXT_PLAIN) { ... }
-   ```
-3. Drop the noisy per-call `LOG_INF` lines inside `getContentFormat`.
+**Now.** [loki_coap_utils.c getContentFormat](../src/loki_coap_utils.c):
 
-**Affected:** [../src/loki_coap_utils.c](../src/loki_coap_utils.c).
-**Effort:** S–M. **Risk:** low (currently dead code; safe to fix or delete).
+- The iterator lives on the stack (`otCoapOptionIterator iterator;`) and is
+  initialised by passing its address — `otCoapOptionIteratorInit(&iterator,
+  request_message)`. Init failure falls back to `text/plain` (the de-facto
+  default for clients that don't set Content-Format).
+- The actual option value is fetched with
+  `otCoapOptionIteratorGetOptionUintValue(&iterator, &raw)` — the correct
+  OT API for the uint-encoded Content-Format option. The raw `uint64_t` is
+  cast to `otCoapOptionContentFormat` on the way out.
+- The noisy `LOG_INF` chatter is gone; only a single `LOG_WRN` fires when
+  reading the option value fails, which should be rare.
+
+The Speed GET handler now actually calls it:
+
+```c
+if (getContentFormat(request_message) == OT_COAP_OPTION_CONTENT_FORMAT_TEXT_PLAIN) {
+    /* serialise as ASCII decimal */
+} else {
+    /* serialise as octet-stream */
+}
+```
+
+This unblocks [2.6](#26-unify-speed--acceleration-into-one-generic-numeric-handler),
+which depends on a working Content-Format inspection to pick ASCII vs binary
+on the PUT path.
+
+**Verification.**
+
+- [ ] `coap-client -N -m get coap://[<loco>]:5683/speed` without `-T text/plain`
+      → returns ASCII decimal as before.
+- [ ] `coap-client -N -m get -T application/octet-stream coap://[<loco>]:5683/speed`
+      → returns the 1-byte octet-stream representation. Pre-fix this branch
+      was unreachable.
+- [ ] No more per-call `"Getting content format option"` log spam.
 
 ---
 

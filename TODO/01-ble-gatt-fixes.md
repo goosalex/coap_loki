@@ -4,43 +4,35 @@ Covers the BLE-side caveats from [../INTERFACES.md](../INTERFACES.md#gatt-caveat
 
 ---
 
-## 1.1 Speed notifications target the wrong attribute
+## 1.1 Speed notifications target the wrong attribute — **applied**
 
-**Problem.** `bt_notify_speed()` notifies on `loki_service.attrs[1]`
-([../src/main_ble_utils.c:503-508](../src/main_ble_utils.c#L503-L508)). With the
-current declaration order, `attrs[1]` is the **Acceleration** characteristic
-*declaration*, not the Speed value attribute.
+**The picture.** Zephyr's GATT API has two ways to fire a notification: hand it
+an `attr*` index into the service's attribute array, or hand it a UUID and let
+the stack find the value attribute by walking the service. The original code
+used the first, with a hard-coded `&attrs[1]`. That was correct at one point in
+the service's history, but as soon as more characteristics were added in front
+of Speed, that index started pointing at someone else's declaration — silently.
 
-**Why it matters.** Subscribed clients either get notifications on the wrong
-handle or none at all; the feature looks wired up but is effectively broken.
+**Was.** `bt_notify_speed()` notified on `&loki_service.attrs[1]`, which under
+the current `BT_GATT_SERVICE_DEFINE` order is the Acceleration characteristic
+*declaration*, not the Speed value (`attrs[4]`). Subscribed clients either saw
+no notifications or got them on the wrong handle.
 
-**Fix.** Don't hand-index the attribute array. Reference the value attribute by
-its UUID-bearing entry. Two robust options:
+**Now.** [main_ble_utils.c `bt_notify_speed`](../src/main_ble_utils.c) uses
+`bt_gatt_notify_uuid(NULL, LOKI_SPEED_UUID, loki_service.attrs, &speed_value,
+sizeof(speed_value))`. The stack resolves the Speed value attribute by walking
+from the service handle and matching the UUID, so any future reordering of the
+characteristic list can't silently break this again. `LOKI_SPEED_UUID` comes
+from the generated `loki_gatt.h` (Plan 04), so there's no extra hand-maintained
+constant to drift.
 
-- Use the attribute *next to* the characteristic declaration via the generated
-  symbol, or
-- Store a pointer to the Speed value attribute at registration time, or simplest:
-  use `bt_gatt_notify_uuid()` / compute the index from the macro layout.
+**Verification.**
 
-Recommended minimal change — point at the Speed **value** attribute (the entry
-immediately after the Speed characteristic declaration). Given the order
-`[0]=service, [1]=accel decl, [2]=accel val, [3]=speed decl, [4]=speed val`,
-that is `attrs[4]`:
-
-```c
-void bt_notify_speed(void)
-{
-    bt_gatt_notify(NULL, &loki_service.attrs[4], &speed_value,
-                   sizeof(speed_value));
-}
-```
-
-Better: add a comment pinning the index to the declaration order, or switch to
-`bt_gatt_notify_uuid(NULL, LOKI_SPEED_UUID, loki_service.attrs, ...)` so a
-re-ordering of characteristics can't silently break it again.
-
-**Affected:** [../src/main_ble_utils.c](../src/main_ble_utils.c).
-**Effort:** S. **Risk:** low (verify with nRF Connect subscribe + a speed change).
+- [ ] Subscribe to the Speed characteristic in nRF Connect; change speed via a
+      direct write or `/speed` PUT; observe notifications arrive on the
+      *Speed* characteristic, not the Acceleration declaration.
+- [ ] Confirm the existing `speed_ccc_cfg_changed` enable/disable logic still
+      gates whether notifications fire (no regression there).
 
 ---
 

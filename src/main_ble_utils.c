@@ -533,9 +533,13 @@ void bt_submit_refresh_advertising_data_work() {
 
 void bt_notify_speed(void)
 {
-
-    bt_gatt_notify(NULL, &loki_service.attrs[1], &speed_value,
-                   sizeof(speed_value));
+	/* Locate the Speed value attribute by UUID rather than by index, so any
+	 * reordering of characteristics in BT_GATT_SERVICE_DEFINE doesn't
+	 * silently break notifications. The previous `&attrs[1]` pointed at
+	 * the Acceleration characteristic declaration once the service grew
+	 * past one entry. */
+	bt_gatt_notify_uuid(NULL, LOKI_SPEED_UUID, loki_service.attrs,
+			    &speed_value, sizeof(speed_value));
 }
 
 int bt_ready(void)
