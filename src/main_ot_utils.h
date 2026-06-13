@@ -34,13 +34,13 @@ extern otSrpClientBuffersServiceEntry *loconet_udp_service;
 
 extern otUdpSocket loconet_udp_socket;
 
-otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  char *instance_name, char *service_name, int port);
-otSrpClientBuffersServiceEntry *register_coap_service( otInstance *p_instance ,  char *instance_name, char *service_name);
+otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  const char *instance_name, const char *service_name, int port);
+otSrpClientBuffersServiceEntry *register_coap_service( otInstance *p_instance ,  const char *instance_name, const char *service_name);
 /* re_register_*: takes a pointer to the caller's entry-pointer so it can free
  * the old pool entry, allocate a new one, and rebind the caller's variable to
  * the new pointer. Callers continue to pass `&long_name_coap_service` etc. */
-int re_register_coap_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry **entry, char *instance_name, char *service_name) ;
-int re_register_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry **entry, char *instance_name, char *service_name, int port);
+int re_register_coap_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry **entry, const char *instance_name, const char *service_name) ;
+int re_register_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry **entry, const char *instance_name, const char *service_name, int port);
 int bindUdpHandler(otInstance *aInstance, otUdpSocket *aSocket, uint16_t port, otUdpReceive aHandler);
 
 

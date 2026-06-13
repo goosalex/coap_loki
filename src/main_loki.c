@@ -284,7 +284,9 @@ void on_udp_loconet_receive(void *aContext, otMessage *aMessage, const otMessage
 			LOG_INF("Not for me. I am DCC %d", dcc_address);
 			return;	
 		}
-		uint8_t SPD, DIRF, STAT1;
+		/* SPD is mentioned in the Loconet spec block below but isn't parsed
+		 * yet — once the speed mapping is decoded, add it back here. */
+		uint8_t DIRF, STAT1;
 		STAT1 = buf[3];
 		LOG_INF("STAT1 Byte "BYTE_TO_BINARY_PATTERN, BYTE_TO_BINARY(STAT1));
 

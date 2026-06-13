@@ -503,7 +503,7 @@ void *de_register_service( otSrpClientService service){
 	return NULL;
 }
 
-void modify_full_name(char *buf, uint16_t len)
+void modify_full_name(const char *buf, uint16_t len)
 {
 	if (strncmp(buf, full_name, len) == 0) {
 		return;
@@ -525,7 +525,7 @@ void modify_full_name(char *buf, uint16_t len)
 	
 }
 
-int modify_short_name(char *buf, uint16_t len)
+int modify_short_name(const char *buf, uint16_t len)
 {
 	if (strncmp(buf, ble_name, len) == 0) {
 		return 0;

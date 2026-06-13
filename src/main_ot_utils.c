@@ -41,6 +41,7 @@
 
 #include "main_ble_utils.h"
 #include "main_ot_utils.h"
+#include "displays/main_display.h"   /* display_updateIPv6Address / display_updateOTConnectionStatus */
 
 
 LOG_MODULE_REGISTER(loki_ot, CONFIG_COAP_SERVER_LOG_LEVEL);
@@ -189,18 +190,13 @@ int start_thread_joiner(char *secret)
 }
 
 
-static // Typical callback signature for net_if_ip_addr_cb_t:  (for reference only)
-void print_ipv6_addr(struct net_if *iface, struct net_if_addr *if_addr, void *user_data)
-{
-    char addr_str[NET_IPV6_ADDR_LEN];
+/* (A reference-only `print_ipv6_addr` used to live here, mirroring the
+ *  display_pref_ipv6_addr below without the "preferred" filter. Removed
+ *  because nothing called it.) */
 
-    if_addr->address.family = AF_INET6;
-    net_addr_ntop(AF_INET6, &if_addr->address.in6_addr, addr_str, sizeof(addr_str));
-    printf("IPv6 address: %s\n", addr_str);
-}
-
-static // Applied callback signature for net_if_ip_addr_cb_t: to display preferred address only
-void display_pref_ipv6_addr(struct net_if *iface, struct net_if_addr *if_addr, void *user_data)
+/* Applied callback signature for net_if_ip_addr_cb_t — displays only the
+ * preferred address. */
+static void display_pref_ipv6_addr(struct net_if *iface, struct net_if_addr *if_addr, void *user_data)
 {
 	if (if_addr->addr_state == NET_ADDR_PREFERRED) {
 		char addr_str[NET_IPV6_ADDR_LEN];
@@ -212,49 +208,56 @@ void display_pref_ipv6_addr(struct net_if *iface, struct net_if_addr *if_addr, v
 	}
 }
 
-static void on_thread_address_changed(otChangedFlags flags, struct openthread_context *ot_context,
-				    void *user_data)
+/* New-API state-changed callbacks take (otChangedFlags, void *user_data).
+ * Use the openthread_get_default_{context,instance}() helpers for things
+ * that previously lived on the now-deprecated ot_context fields. */
+
+static void on_thread_address_changed(otChangedFlags flags, void *user_data)
 {
-	if ( (flags & OT_CHANGED_IP6_ADDRESS_ADDED) || (flags & OT_CHANGED_IP6_ADDRESS_REMOVED) ) {
+	ARG_UNUSED(user_data);
+
+	if ((flags & OT_CHANGED_IP6_ADDRESS_ADDED) ||
+	    (flags & OT_CHANGED_IP6_ADDRESS_REMOVED)) {
 		LOG_INF("Thread IP Address changed\n");
 
-        struct net_if *iface = ot_context->iface;
+		struct openthread_context *ot_context = openthread_get_default_context();
+		struct net_if *iface = ot_context ? ot_context->iface : NULL;
 		if (iface == NULL) {
 			LOG_ERR("No network interface found\n");
 			return;
 		}
 
-		// Iterate over all IPv6 addresses on the interface
-		// and call the callback function for each address
-		// only the preferred address will be displayed
-        net_if_ipv6_addr_foreach(iface,display_pref_ipv6_addr , NULL);
+		/* Iterate over all IPv6 addresses on the interface; only the
+		 * preferred one will be passed to the display callback. */
+		net_if_ipv6_addr_foreach(iface, display_pref_ipv6_addr, NULL);
 
-		if (srp_is_enabled){
+		if (srp_is_enabled) {
 			init_srp();
-		};
+		}
 	}
-	if ( (flags & OT_CHANGED_THREAD_ML_ADDR)  ) {
+	if (flags & OT_CHANGED_THREAD_ML_ADDR) {
 		LOG_INF("Thread ML Address changed\n");
-		if (srp_is_enabled){
+		if (srp_is_enabled) {
 			init_srp();
-		};
+		}
 	}
-		if ( (flags & OT_CHANGED_IP6_MULTICAST_SUBSCRIBED) || (flags & OT_CHANGED_IP6_MULTICAST_UNSUBSCRIBED) ) {
+	if ((flags & OT_CHANGED_IP6_MULTICAST_SUBSCRIBED) ||
+	    (flags & OT_CHANGED_IP6_MULTICAST_UNSUBSCRIBED)) {
 		LOG_INF("IPv6 Multicast subscriptions changed\n");
-		if (srp_is_enabled){
+		if (srp_is_enabled) {
 			init_srp();
-		};
+		}
 	}
 }
 
-static void on_thread_state_changed(otChangedFlags flags, struct openthread_context *ot_context,
-				    void *user_data)
+static void on_thread_state_changed(otChangedFlags flags, void *user_data)
 {
-	static int ret;
-if (flags & OT_CHANGED_THREAD_ROLE) {
-		switch (otThreadGetDeviceRole(ot_context->instance)) {
+	ARG_UNUSED(user_data);
+
+	if (flags & OT_CHANGED_THREAD_ROLE) {
+		switch (otThreadGetDeviceRole(openthread_get_default_instance())) {
 		case OT_DEVICE_ROLE_CHILD:
-			printk("OT new state  Childr\n");
+			printk("OT new state Child\n");
 			display_updateOTConnectionStatus("+Child");
 			ble_lifecycle_on_thread_attached();
 			break;
@@ -264,7 +267,7 @@ if (flags & OT_CHANGED_THREAD_ROLE) {
 			ble_lifecycle_on_thread_attached();
 			break;
 		case OT_DEVICE_ROLE_LEADER:
-			LOG_INF("Thread Role: Child/Router/Leader\n");
+			LOG_INF("Thread Role: Leader\n");
 			display_updateOTConnectionStatus("+Leader");
 			ble_lifecycle_on_thread_attached();
 			break;
@@ -273,29 +276,29 @@ if (flags & OT_CHANGED_THREAD_ROLE) {
 		case OT_DEVICE_ROLE_DETACHED:
 		default:
 			LOG_INF("Thread Role: Disabled/Detached\n");
-			// deactivate_provisionig();
 			ble_lifecycle_on_thread_detached();
 			break;
 		}
 	}
 }
-static struct openthread_state_changed_cb ot_state_chaged_cb = { .state_changed_cb =
-									 on_thread_state_changed };
-// why this Zephyr function is called and not otSetStateChangedCallback() ? IDK
-static struct openthread_state_changed_cb ot_address_changed_cb = { .state_changed_cb =
-									 on_thread_address_changed };
+
+static struct openthread_state_changed_callback ot_state_chaged_cb = {
+	.otCallback = on_thread_state_changed,
+};
+static struct openthread_state_changed_callback ot_address_changed_cb = {
+	.otCallback = on_thread_address_changed,
+};
 
 
 
 int enable_thread(){
 	otInstance *p_instance = openthread_get_default_instance();
-	struct openthread_context *ot_context = openthread_get_default_context();
 	if (ot_is_enabled) {
 		LOG_INF("Thread network already enabled\n");
 		return 0;
 	}
-	if (p_instance == NULL || ot_context == NULL) {
-		LOG_ERR("No OpenThread instance/context\n");
+	if (p_instance == NULL) {
+		LOG_ERR("No OpenThread instance\n");
 		return -1;
 	}
 	otError error = OT_ERROR_NONE;
@@ -312,10 +315,10 @@ int enable_thread(){
 	}
 	LOG_INF("Enabling Thread network\n");
 
-	if (0 != openthread_state_changed_cb_register(ot_context, &ot_state_chaged_cb)){
+	if (0 != openthread_state_changed_callback_register(&ot_state_chaged_cb)) {
 		LOG_ERR("OpenThread State Change Callback Registration failed\n");
 	}
-	if (0 != openthread_state_changed_cb_register(ot_context, &ot_address_changed_cb)){
+	if (0 != openthread_state_changed_callback_register(&ot_address_changed_cb)) {
 		LOG_ERR("OpenThread Address Change Callback Registration failed\n");
 	}
 	LOG_INF("OpenThread Callbacks registered\n");
@@ -494,11 +497,11 @@ static uint16_t srp_valid_or_default_port(int port)
 	return (uint16_t)port;
 }
 
-otSrpClientBuffersServiceEntry *register_coap_service( otInstance *p_instance ,  char *instance_name, char *service_name) {
+otSrpClientBuffersServiceEntry *register_coap_service( otInstance *p_instance ,  const char *instance_name, const char *service_name) {
 	return register_service(p_instance, instance_name, service_name, OT_DEFAULT_COAP_PORT);
 }
 
-int re_register_coap_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry **entry, char *instance_name, char *service_name) {
+int re_register_coap_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry **entry, const char *instance_name, const char *service_name) {
 	return re_register_service(p_instance, entry, instance_name, service_name, OT_DEFAULT_COAP_PORT);
 }
 
@@ -507,7 +510,7 @@ int re_register_coap_service( otInstance *p_instance ,  otSrpClientBuffersServic
  * rebound to the new pool address so subsequent free/lookup calls work.
  * Pre-1.7 this function took an entry-by-pointer and reassigned a *local*
  * copy — the caller's variable was never updated. */
-int re_register_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry **entry, char *instance_name, char *service_name, int port) {
+int re_register_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry **entry, const char *instance_name, const char *service_name, int port) {
 	otError error;
 	char *instance_name_buf;
 	char *service_name_buf;
@@ -548,7 +551,7 @@ int re_register_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntr
 }
 
 
-otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  char *instance_name, char *service_name, int port) {
+otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  const char *instance_name, const char *service_name, int port) {
 	otError error;
 	char *instance_name_buf;
     char *service_name_buf;
@@ -610,24 +613,19 @@ int bindUdpHandler(otInstance *aInstance, otUdpSocket *aSocket, uint16_t port, o
 	return 0;
 }
 
-const bool mLinkSecurityEnabled = false;
-
 int sendOtUdpReply(otInstance *aInstance, otUdpSocket *sock, otMessageInfo *origMsgInfo, otMessage *msg){
 	int ret;
-	otIp6Address ip6adr;
-	uint16_t port;
-	char *buf[OT_IP6_ADDRESS_STRING_SIZE];
-	ip6adr = origMsgInfo->mPeerAddr;
-	otIp6AddressToString(&ip6adr,buf,OT_IP6_ADDRESS_STRING_SIZE);
-	LOG_INF("Sending back reply to %s:%d",buf,port);
-	
-	otMessageSettings messageSettings = {mLinkSecurityEnabled, OT_MESSAGE_PRIORITY_NORMAL};
-	ret = otUdpSend(aInstance, sock, msg, origMsgInfo );
+	otIp6Address ip6adr = origMsgInfo->mPeerAddr;
+	uint16_t port = origMsgInfo->mPeerPort;
+	char buf[OT_IP6_ADDRESS_STRING_SIZE];   /* was `char *buf[…]`, an array of pointers */
+	otIp6AddressToString(&ip6adr, buf, OT_IP6_ADDRESS_STRING_SIZE);
+	LOG_INF("Sending back reply to %s:%u", buf, port);
+
+	ret = otUdpSend(aInstance, sock, msg, origMsgInfo);
 	if (ret != OT_ERROR_NONE) {
 		LOG_ERR("Failed to send UDP reply: %s", otThreadErrorToString(ret));
 		return -1;
 	}
 	return 0;
-
 }
 

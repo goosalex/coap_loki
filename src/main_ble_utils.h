@@ -34,9 +34,9 @@ extern int bt_ready(void);
 
 /* Rename helpers — defined in main.c (where the loki settings handlers live).
  * Declared here so main_ble_utils.c's write_ble_name handler doesn't fall back
- * to an implicit-int declaration. */
-int modify_short_name(char *buf, uint16_t len);
-void modify_full_name(char *buf, uint16_t len);
+ * to an implicit-int declaration. Both are read-only over the buffer. */
+int modify_short_name(const char *buf, uint16_t len);
+void modify_full_name(const char *buf, uint16_t len);
 
 /* BLE advertising lifecycle controller.
  * Drives the "BLE off after a successful Thread attach" behavior governed by

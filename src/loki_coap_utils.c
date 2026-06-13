@@ -94,53 +94,9 @@ static otCoapResource ble_recovery_resource = {
 	.mContext = NULL,
 	.mNext = NULL,
 };
-static otError provisioning_response_send(otMessage *request_message,
-					  const otMessageInfo *message_info)
-{
-	otError error = OT_ERROR_NO_BUFS;
-	otMessage *response;
-	const void *payload;
-	uint16_t payload_size;
-
-	response = otCoapNewMessage(srv_context.ot, NULL);
-	if (response == NULL) {
-		goto end;
-	}
-
-	otCoapMessageInit(response, OT_COAP_TYPE_NON_CONFIRMABLE,
-			  OT_COAP_CODE_CONTENT);
-
-	error = otCoapMessageSetToken(
-		response, otCoapMessageGetToken(request_message),
-		otCoapMessageGetTokenLength(request_message));
-	if (error != OT_ERROR_NONE) {
-		goto end;
-	}
-
-	error = otCoapMessageSetPayloadMarker(response);
-	if (error != OT_ERROR_NONE) {
-		goto end;
-	}
-
-	payload = otThreadGetMeshLocalEid(srv_context.ot);
-	payload_size = sizeof(otIp6Address);
-
-	error = otMessageAppend(response, payload, payload_size);
-	if (error != OT_ERROR_NONE) {
-		goto end;
-	}
-
-	error = otCoapSendResponse(srv_context.ot, response, message_info);
-
-	LOG_HEXDUMP_INF(payload, payload_size, "Sent provisioning response:");
-
-end:
-	if (error != OT_ERROR_NONE && response != NULL) {
-		otMessageFree(response);
-	}
-
-	return error;
-}
+/* `provisioning_response_send` used to live here — vestige of the
+ * Nordic light/provisioning sample. Removed because nothing in loki
+ * ever called it. */
 
 /* TODO REMOVE AFTER REIMPLEMENTATION FOR SPEED ACC STOP 
 static void provisioning_request_handler(void *context, otMessage *message,

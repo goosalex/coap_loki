@@ -13,7 +13,7 @@
  */
 typedef void (*speed_request_callback_t)(uint8_t cmd);
 typedef void (*accel_request_callback_t)(int8_t cmd);
-typedef void (*name_set_request_callback_t)(char *buf, uint16_t len);
+typedef void (*name_set_request_callback_t)(const char *buf, uint16_t len);
 typedef void (*stop_request_t)();
 typedef void (*ble_recovery_request_callback_t)(void);
 
