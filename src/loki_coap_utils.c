@@ -13,6 +13,7 @@
 #include <openthread/message.h>
 #include <openthread/thread.h>
 #include <stdio.h>
+#include <stdlib.h>             /* strtoul — replaces newlib-pulling sscanf */
 #include "loki_coap_utils.h"
 #include "loki_gatt.h"          /* MAX_LEN_FULL_NAME for name_request_handler */
 #include "main_loki.h"
@@ -163,7 +164,11 @@ end:
 static void speed_request_handler(void *context, otMessage *request_message,
 								  const otMessageInfo *message_info)
 {
-	static char speed_input_value[4];
+	/* 5 = up to 3 digits ("255") + NUL + 1 byte of slack for malformed input.
+	 * The original 4-byte buffer was filled by otMessageRead(...,4) with no
+	 * terminator, leaving strtoul/sscanf reading past the end on a max-length
+	 * payload. */
+	static char speed_input_value[5];
 	uint8_t value;
 
 	ARG_UNUSED(context);
@@ -176,24 +181,28 @@ static void speed_request_handler(void *context, otMessage *request_message,
 
 	if (otCoapMessageGetCode(request_message) == OT_COAP_CODE_PUT)
 	{
-		if (otMessageRead(request_message, otMessageGetOffset(request_message), &speed_input_value, 4) <
-			1)
+		int n = otMessageRead(request_message,
+				      otMessageGetOffset(request_message),
+				      speed_input_value,
+				      sizeof(speed_input_value) - 1);
+		if (n < 1)
 		{
 			LOG_ERR("Speed handler - Missing speed parameter");
 			goto end;
 		}
-		/* FIXME: enabled NEWLIBC only for this. Through out, if image grows too big:
-		  FLASH:      692124 B         1 MB     66.01% 
+		speed_input_value[n] = '\0';
 
-		vs
-
-           FLASH:      656124 B         1 MB     62.57%
-             RAM:      131020 B       256 KB     49.98%
-		*/
-		/* %hhu = unsigned char, which matches uint8_t — silences the
-		 * format/type warning. The whole sscanf goes away when 2.6 lands
-		 * the newlib-free decimal parser. */
-		sscanf(speed_input_value, "%hhu", &value);
+		/* strtoul lives in stdlib.h and is provided by minimal-libc /
+		 * picolibc — so this no longer pulls in newlib for the sake of
+		 * one decimal parse (used to cost ~36 KB of flash). */
+		char *parse_end;
+		unsigned long parsed = strtoul(speed_input_value, &parse_end, 10);
+		if (parse_end == speed_input_value || parsed > 255)
+		{
+			LOG_ERR("Speed handler - bad speed value '%s'", speed_input_value);
+			goto end;
+		}
+		value = (uint8_t)parsed;
 
 		LOG_INF("Received direct speed request: %u", value);
 		srv_context.on_speed_request(value);
@@ -231,7 +240,7 @@ static void speed_request_handler(void *context, otMessage *request_message,
 				goto end_response;
 			}
 
-			payload_size = sprintf(payload, "%d",speed_value);
+			payload_size = snprintk(payload, sizeof(payload), "%u", speed_value);
 		} else {
 			error = otCoapMessageAppendContentFormatOption(response, OT_COAP_OPTION_CONTENT_FORMAT_OCTET_STREAM);
 			if (error != OT_ERROR_NONE)

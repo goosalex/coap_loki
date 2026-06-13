@@ -352,9 +352,12 @@ int enable_thread(){
 			LOG_ERR("Failed to get EUI64: %s", otThreadErrorToString(error));
 			return -1;
 		}
-		sprintf(printable, "%02X%02X%02X%02X%02X%02X%02X%02X",
-				eui64.m8[0], eui64.m8[1], eui64.m8[2], eui64.m8[3],
-				eui64.m8[4], eui64.m8[5], eui64.m8[6], eui64.m8[7]);
+		/* Caller passes a 17-byte buffer (8 hex pairs + NUL). Encoded here as
+		 * a literal because get_Eui64()'s signature carries no size. */
+		snprintk(printable, 8 * 2 + 1,
+			 "%02X%02X%02X%02X%02X%02X%02X%02X",
+			 eui64.m8[0], eui64.m8[1], eui64.m8[2], eui64.m8[3],
+			 eui64.m8[4], eui64.m8[5], eui64.m8[6], eui64.m8[7]);
 		return 0;
 	}
 

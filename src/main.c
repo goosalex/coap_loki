@@ -145,13 +145,13 @@ void notify_motion_change()
 	if (is_display_enabled) {
 		char buffer[3];
 		if (direction_pattern && 1) {
-			sprintf(buffer, "%s", " >");
+			strcpy(buffer, " >");
 		} else if ((direction_pattern && 2))
 		{
-			sprintf(buffer, "%s", "< ");
+			strcpy(buffer, "< ");
 		} else
 		 {
-			sprintf(buffer, "%s", "--");
+			strcpy(buffer, "--");
 		}
 		LOG_DBG("Sending Speed Notifications %s %d to Display\n",buffer, speed_value);
 		display_updateDirectionAndSpeed(direction_pattern, speed_value);
@@ -329,7 +329,7 @@ void init_default_name()
 	// convert eui64 to hex string
 	char buf[id_str_len+1];
 	for (int i = 0; i < id_len; i++) {
-		sprintf(buf + i * 2, "%02X", eui64buf[i]);
+		snprintk(buf + i * 2, 3, "%02X", eui64buf[i]);
 	}
 	LOG_INF("EUI64_ID: %s\n",buf);
 
@@ -359,13 +359,13 @@ void display_start(void)
 	if (is_display_enabled) {
 		char buffer[3];
 		if (direction_pattern && 1) {
-			sprintf(buffer, "%s", " >");
+			strcpy(buffer, " >");
 		} else if ((direction_pattern && 2))
 		{
-			sprintf(buffer, "%s", "< ");
+			strcpy(buffer, "< ");
 		} else
 		 {
-			sprintf(buffer, "%s", "--");
+			strcpy(buffer, "--");
 		}
 		display_updateDirectionAndSpeed(direction_pattern, speed_value);
 		display_updateIPv6Address(NULL);
