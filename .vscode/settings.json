@@ -7,5 +7,10 @@
     },
     "nrf-connect.debugging.bindings": {
         "${workspaceFolder}/build_dongle/coap_loki_2": "Launch coap_loki_2"
-    }
+    },
+    "claudeCode.environmentVariables": [
+        
+
+    ],
+    "claudeCode.spinnerVerbs": {"mode": "replace", "verbs": ["..."]}
 }
