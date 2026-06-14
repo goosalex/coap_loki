@@ -171,7 +171,16 @@ so it can't drift from the actual handlers).
 
 ---
 
-## 2.6 Unify speed & acceleration into one generic numeric handler
+## 2.6 Unify speed & acceleration into one generic numeric handler — **Part B applied, Part A pending**
+
+> **Status (2026-06):** the newlib-free numeric path (Part B below) has landed,
+> taking a slightly different shape from this plan — it uses `strtoul` /
+> `snprintk` (provided by picolibc / minimal-libc, free of charge) rather than
+> the hand-rolled `parse_decimal_signed` / `format_decimal_signed` helpers
+> sketched here. The end result is the same: `CONFIG_NEWLIB_LIBC` is gone
+> from [../loki_app.conf](../loki_app.conf) and the ~36 KB regression is
+> reclaimed. The **handler unification (Part A) is still open** and remains the
+> right next step before `/pwm` or any further numeric resource joins.
 
 **The picture.** Two CoAP resources — `/speed` (`uint8`) and `/acceleration`
 (`int8`) — both need the same shape of behaviour: GET returns the current
@@ -182,10 +191,11 @@ and [2.3](#23-content-format-negotiation-is-stubbed-iterator-is-uninitialised)
 took root: one path was edited correctly, the other was forgotten. Each new
 numeric resource (`/pwm`, `/direction`) would add another copy.
 
-A secondary cost: the speed handler uses `sscanf("%d", …)` to parse ASCII —
-the source comment notes that enabling newlibc *just for sscanf* adds **~36 KB
-of flash** (FLASH 66.0% vs 62.6%). The unification is also the natural moment
-to drop sscanf for a tiny hand-rolled decimal parser.
+A secondary cost (now resolved — see status box above): the speed handler used
+`sscanf("%d", …)` to parse ASCII — the source comment noted that enabling
+newlibc *just for sscanf* added **~36 KB of flash** (FLASH 66.0% vs 62.6%). The
+unification was the natural moment to drop sscanf; in practice the swap landed
+ahead of Part A as a standalone change.
 
 This plan supersedes [2.2](#22-acceleration-get-returns-speed-not-acceleration)
 (the GET-returns-speed bug evaporates when both resources share the same
@@ -270,7 +280,22 @@ registration call.
 delete the adapters; that's a cascading change worth considering once a third
 resource (`/pwm`) joins.
 
-### Part B — Decimal parse/format without newlib
+### Part B — Decimal parse/format without newlib — **applied (different path)**
+
+> **What actually shipped.** `sscanf("%hhu", …)` in
+> [../src/loki_coap_utils.c](../src/loki_coap_utils.c) was replaced with a
+> bounded `otMessageRead` + `strtoul` parse (NUL-termination + range check),
+> and the matching `sprintf(payload, "%d", …)` became `snprintk(payload,
+> sizeof(payload), "%u", …)`. `strtoul` and `snprintk` are both newlib-free
+> (provided by minimal-libc / picolibc and Zephyr's `<zephyr/sys/printk.h>`
+> respectively), so the hand-rolled helpers sketched below were not needed.
+> Every other `sprintf` in [../src/main.c](../src/main.c) and
+> [../src/main_ot_utils.c](../src/main_ot_utils.c) was migrated at the same
+> time (to `snprintk` or `strcpy`), and `CONFIG_NEWLIB_LIBC` was commented out
+> in [../loki_app.conf](../loki_app.conf) with the rationale recorded inline.
+> The helpers below are kept for reference in case a future call site needs
+> tighter control over the parse (e.g. embedded NUL handling, custom error
+> codes) than `strtoul` provides.
 
 Two ~25-line helpers replace `sscanf("%d")` and `sprintf("%d")`. They live
 beside the handler in [../src/loki_coap_utils.c](../src/loki_coap_utils.c) as
@@ -332,7 +357,9 @@ static size_t format_decimal_signed(int32_t value, char *buf, size_t bufsz)
 
 Once `sscanf`/`sprintf` are gone from the CoAP layer, audit the rest of the
 tree for other newlib pulls; if none remain, `CONFIG_NEWLIB_LIBC=n` reclaims
-the ~36 KB the source comment flagged.
+the ~36 KB the source comment flagged. (**Done** — see the status box above;
+the audit found no other newlib callers and the symbol is commented out in
+[../loki_app.conf](../loki_app.conf).)
 
 ### Side effects this fix gives us for free
 

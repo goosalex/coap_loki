@@ -144,10 +144,13 @@ void notify_motion_change()
 	}
 	if (is_display_enabled) {
 		char buffer[3];
-		if (direction_pattern && 1) {
+		/* Bitwise tests on the direction bit-pattern: bit 0 = forward,
+		 * bit 1 = reverse. Was previously '&&' (logical AND with a
+		 * constant), making the reverse branch unreachable whenever
+		 * direction_pattern was non-zero. */
+		if (direction_pattern & 1) {
 			strcpy(buffer, " >");
-		} else if ((direction_pattern && 2))
-		{
+		} else if (direction_pattern & 2) {
 			strcpy(buffer, "< ");
 		} else
 		 {
@@ -358,10 +361,13 @@ void display_start(void)
 {
 	if (is_display_enabled) {
 		char buffer[3];
-		if (direction_pattern && 1) {
+		/* Bitwise tests on the direction bit-pattern: bit 0 = forward,
+		 * bit 1 = reverse. Was previously '&&' (logical AND with a
+		 * constant), making the reverse branch unreachable whenever
+		 * direction_pattern was non-zero. */
+		if (direction_pattern & 1) {
 			strcpy(buffer, " >");
-		} else if ((direction_pattern && 2))
-		{
+		} else if (direction_pattern & 2) {
 			strcpy(buffer, "< ");
 		} else
 		 {
