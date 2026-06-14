@@ -65,6 +65,33 @@ def import_yaml():
 
 
 # ----------------------------------------------------------------------------
+# Numeric type table
+# ----------------------------------------------------------------------------
+#
+# Maps the YAML `type:` strings used by numeric CoAP resources to the C-side
+# enum tag plus the type's native (min, max) range. Insertion order doubles as
+# the enum-member order in the generated header — keep newer/wider types at
+# the bottom so existing tags stay stable across YAML edits.
+#
+# Adding a new numeric type? Add it here AND extend the firmware switch on
+# `loki_num_type_t` (currently in src/loki_coap_utils.c) — the compiler will
+# point at every place that needs updating.
+
+NUMERIC_TYPES: "dict[str, tuple[str, int, int]]" = {
+    "uint8":     ("LOKI_NUM_U8",     0,        255),
+    "int8":      ("LOKI_NUM_I8",     -128,     127),
+    "uint16_le": ("LOKI_NUM_U16_LE", 0,        65535),
+    "int16_le":  ("LOKI_NUM_I16_LE", -32768,   32767),
+}
+
+
+def resource_stem(c_symbol: str) -> str:
+    """`SPEED_URI_PATH` → `SPEED`; falls back to the symbol unchanged otherwise."""
+    suffix = "_URI_PATH"
+    return c_symbol[: -len(suffix)] if c_symbol.endswith(suffix) else c_symbol
+
+
+# ----------------------------------------------------------------------------
 # UUID helpers
 # ----------------------------------------------------------------------------
 
@@ -161,6 +188,63 @@ def render_coap(doc: dict) -> str:
             sym = r["c_symbol"]
             lines.append(f'#define {sym:<{width}} "{r["path"]}"')
         lines.append("")
+
+    # Numeric-resource metadata: per-resource type tag + effective (min, max),
+    # synthesised from each resource's `type:` (and optional `range:`). Consumed
+    # by the generic numeric handler in src/loki_coap_utils.c so adding a new
+    # numeric resource in YAML auto-extends the firmware without further edits
+    # to the C metadata array (only the per-resource value pointer + setter
+    # adapter remain hand-written, since those reference firmware-side state).
+    numeric = [r for r in res if r.get("type") in NUMERIC_TYPES]
+    if numeric:
+        # Enum members in NUMERIC_TYPES insertion order, restricted to the
+        # types actually used. NONE always present as the zero-value sentinel.
+        used_tags: list[str] = ["LOKI_NUM_NONE"]
+        for yname in NUMERIC_TYPES:                       # preserve YAML-table order
+            tag = NUMERIC_TYPES[yname][0]
+            if any(r["type"] == yname for r in numeric):
+                used_tags.append(tag)
+
+        lines.append(
+            "/* Numeric resource type tags — synthesised from coap.yaml `type:` */"
+        )
+        lines.append("typedef enum {")
+        for i, tag in enumerate(used_tags):
+            comma = "," if i < len(used_tags) - 1 else ""
+            lines.append(f"\t{tag}{comma}")
+        lines.append("} loki_num_type_t;")
+        lines.append("")
+
+        lines.append("/* Per-resource numeric metadata. MIN/MAX are widened to int32 for")
+        lines.append(" * the generic numeric handler; values come from the YAML `range:`")
+        lines.append(" * field when present, otherwise from the type's native limits. */")
+        # Pre-compute the macro names so we can align values across resources.
+        rows: "list[tuple[str, str, int, int]]" = []
+        for r in numeric:
+            stem = resource_stem(r["c_symbol"])
+            tag, native_min, native_max = NUMERIC_TYPES[r["type"]]
+            rng = r.get("range")
+            if rng is not None:
+                if not (isinstance(rng, list) and len(rng) == 2):
+                    fatal(
+                        f"resource {r['name']!r}: `range:` must be a 2-element "
+                        f"list [min, max]"
+                    )
+                lo, hi = int(rng[0]), int(rng[1])
+            else:
+                lo, hi = native_min, native_max
+            rows.append((stem, tag, lo, hi))
+
+        name_w = max(len(f"LOKI_RES_{s}_TYPE") for s, _, _, _ in rows)
+        tag_w  = max(len(t) for _, t, _, _ in rows)
+        for stem, tag, lo, hi in rows:
+            n_type = f"LOKI_RES_{stem}_TYPE"
+            n_min  = f"LOKI_RES_{stem}_MIN"
+            n_max  = f"LOKI_RES_{stem}_MAX"
+            lines.append(f"#define {n_type:<{name_w}} {tag:<{tag_w}}")
+            lines.append(f"#define {n_min:<{name_w}} ({lo})")
+            lines.append(f"#define {n_max:<{name_w}} ({hi})")
+            lines.append("")
 
     enum = doc.get("direction_enum")
     if enum:

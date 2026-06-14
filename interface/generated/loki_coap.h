@@ -16,6 +16,28 @@
 #define NAME_URI_PATH         "name"
 #define BLE_RECOVERY_URI_PATH "ble-recovery"
 
+/* Numeric resource type tags — synthesised from coap.yaml `type:` */
+typedef enum {
+	LOKI_NUM_NONE,
+	LOKI_NUM_U8,
+	LOKI_NUM_I8
+} loki_num_type_t;
+
+/* Per-resource numeric metadata. MIN/MAX are widened to int32 for
+ * the generic numeric handler; values come from the YAML `range:`
+ * field when present, otherwise from the type's native limits. */
+#define LOKI_RES_SPEED_TYPE     LOKI_NUM_U8
+#define LOKI_RES_SPEED_MIN      (0)
+#define LOKI_RES_SPEED_MAX      (255)
+
+#define LOKI_RES_ACC_TYPE       LOKI_NUM_I8
+#define LOKI_RES_ACC_MIN        (-128)
+#define LOKI_RES_ACC_MAX        (127)
+
+#define LOKI_RES_DIRECTION_TYPE LOKI_NUM_U8
+#define LOKI_RES_DIRECTION_MIN  (0)
+#define LOKI_RES_DIRECTION_MAX  (255)
+
 /* Direction command bytes — direction_command. */
 enum direction_command {
 	THREAD_LOKI_UTILS_LIGHT_CMD_STOP = '0',

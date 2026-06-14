@@ -171,7 +171,7 @@ so it can't drift from the actual handlers).
 
 ---
 
-## 2.6 Unify speed & acceleration into one generic numeric handler — **Part B applied, Part A pending**
+## 2.6 Unify speed & acceleration into one generic numeric handler — **Part B applied, Part A deferred**
 
 > **Status (2026-06):** the newlib-free numeric path (Part B below) has landed,
 > taking a slightly different shape from this plan — it uses `strtoul` /
@@ -179,8 +179,30 @@ so it can't drift from the actual handlers).
 > the hand-rolled `parse_decimal_signed` / `format_decimal_signed` helpers
 > sketched here. The end result is the same: `CONFIG_NEWLIB_LIBC` is gone
 > from [../loki_app.conf](../loki_app.conf) and the ~36 KB regression is
-> reclaimed. The **handler unification (Part A) is still open** and remains the
-> right next step before `/pwm` or any further numeric resource joins.
+> reclaimed.
+>
+> **Part A (handler unification) is deferred — explicitly, not just unscheduled.**
+> The unification's whole appeal is that `/speed` and `/acceleration` are 80%
+> the same shape. The current product direction is that those two resources'
+> *semantics* are likely to diverge — speed gains profile/ramp inputs,
+> acceleration grows direction-aware behaviour, and so on. Unifying them now
+> would either force the generic handler to sprout a switch on resource
+> identity (defeating the point) or guarantee the unification is ripped out
+> again when the divergence lands. Re-evaluate **only** when a third numeric
+> resource arrives that genuinely shares the speed/acceleration shape (e.g.
+> `/pwm`); at that point the comparison is "3 similar copies vs unify", which
+> is a real argument again.
+>
+> The generator-side groundwork *was* landed during this evaluation and is kept
+> in [../tools/gen_descriptors.py](../tools/gen_descriptors.py) /
+> [../interface/generated/loki_coap.h](../interface/generated/loki_coap.h):
+> a `loki_num_type_t` enum and per-resource `LOKI_RES_<X>_TYPE/_MIN/_MAX`
+> macros. They cost ~15 lines in a generated header that nobody hand-edits,
+> and the `_MIN`/`_MAX` halves are usable today for range checks in the
+> existing per-resource handlers (e.g. the speed handler's `parsed > 255`
+> could be `parsed > LOKI_RES_SPEED_MAX`). If a future maintainer wants to
+> roll the codegen back, deleting the `NUMERIC_TYPES` table + the
+> "Numeric-resource metadata" block in `render_coap` is sufficient.
 
 **The picture.** Two CoAP resources — `/speed` (`uint8`) and `/acceleration`
 (`int8`) — both need the same shape of behaviour: GET returns the current
