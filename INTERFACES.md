@@ -101,6 +101,28 @@ The scan response carries the complete device name (the long name).
 > the short name is capped at 8 characters and the long name is delivered via the
 > scan response.
 
+### Standard service: Device Information (`0x180A`)
+
+In addition to the custom Loki Control service below, the firmware exposes the
+standard **Device Information Service** so generic BLE clients render a readable
+identity card next to the opaque `fcbd0001-…` service. Wired up via
+`CONFIG_BT_DIS*` in [loki_app.conf](loki_app.conf) and a runtime override in
+[main.c](src/main.c).
+
+| Field | Value | Source |
+|---|---|---|
+| Manufacturer Name | `Loki` | `CONFIG_BT_DIS_MANUF_NAME_STR` |
+| Model Number | `Locomotive Control` | `CONFIG_BT_DIS_MODEL_NUMBER_STR` |
+| Firmware Revision | `<MAJOR.MINOR.PATCH>` of the running build | `APP_VERSION_*` via `settings_runtime_set("bt/dis/fw", …)` at boot |
+| Software Revision | same as Firmware Revision | `APP_VERSION_*` via `settings_runtime_set("bt/dis/sw", …)` at boot |
+
+Implementation note: this NCS has no `CONFIG_BT_DIS_STR_USER` / `bt_dis_set_str()`
+— `CONFIG_BT_DIS_SETTINGS=y` is the supported way to mutate DIS strings at
+runtime. The override happens *after* `settings_load()`, so it also wins over
+any stale value persisted in NVS from an earlier build; it is intentionally not
+persisted (no `settings_save_one`) so the next boot re-derives from
+`APP_VERSION_*` again.
+
 ### Service: Loki Control
 
 **Primary service UUID:** `fcbd0001-5e25-4387-99b7-53a5495a0c35`

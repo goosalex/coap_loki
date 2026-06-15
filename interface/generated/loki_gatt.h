@@ -67,4 +67,22 @@
 #define LOKI_BLE_NAME_UUID \
     BT_UUID_DECLARE_128(LOKI_BLE_NAME_UUID_VAL)
 
+/* Characteristic User Description (CUD) labels — shown in
+ * BLE debuggers (nRF Connect, BlueZ) next to the raw UUID.
+ * Toggle in gatt.yaml: service.cud_enabled. */
+#define LOKI_SPEED_CUD      "Speed"
+#define LOKI_ACCELERATE_CUD "Acceleration"
+#define LOKI_PWM_CUD        "PWM Base"
+#define LOKI_DIRECTION_CUD  "Direction"
+#define LOKI_NAME_CUD       "Long Name"
+#define LOKI_DCC_CUD        "DCC Address"
+#define LOKI_CREDENTIAL_CUD "Joiner Credential"
+#define LOKI_BLE_NAME_CUD   "Short Name"
+
+/* Service-definition wrapper — used inside BT_GATT_SERVICE_DEFINE
+ * as `LOKI_GATT_CUD_ITEM(LOKI_<SYM>_CUD)` after each
+ * BT_GATT_CHARACTERISTIC entry. Leading comma keeps the surrounding
+ * punctuation legal whether or not the body is empty. */
+#define LOKI_GATT_CUD_ITEM(label) , BT_GATT_CUD(label, BT_GATT_PERM_READ)
+
 #endif /* LOKI_GATT_GENERATED_H */

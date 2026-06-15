@@ -29,6 +29,49 @@ interface/
   pulls in `loki_coap.h`. None of the firmware C files contain the values
   directly.
 
+## Optional GATT features
+
+### Characteristic User Description (CUD) descriptors
+
+By default the generator emits a **Characteristic User Description** (CUD,
+UUID `0x2901`) descriptor per BLE characteristic — generic debuggers like nRF
+Connect and BlueZ's `bluetoothctl` render the label next to the raw UUID, so
+`fcbd0002-…` shows up as **Speed** instead of an opaque blob.
+
+Toggle in [gatt.yaml](gatt.yaml):
+
+```yaml
+service:
+  …
+  cud_enabled: true     # default; set to false to drop CUDs entirely
+```
+
+Label source per characteristic, in priority order:
+
+1. An explicit `cud:` field on the characteristic (verbatim string, used for
+   acronyms — `cud: "PWM Base"` keeps it from rendering as "Pwm Base").
+2. Otherwise, `name:` with underscores replaced by spaces and Title-Cased.
+
+How the toggle reaches the firmware (without `#ifdef` noise in the C):
+
+- When **enabled**, the generated header carries two things — a per-character
+  string macro `LOKI_<SYM>_CUD` and a wrapper macro
+  `LOKI_GATT_CUD_ITEM(label)` whose body is
+  `, BT_GATT_CUD(label, BT_GATT_PERM_READ)` (leading comma deliberate).
+- When **disabled**, only the wrapper macro is emitted, with an empty body.
+  No `LOKI_<SYM>_CUD` labels are emitted at all.
+
+The firmware's [main_ble_utils.c](../src/main_ble_utils.c) uses
+`LOKI_GATT_CUD_ITEM(LOKI_<SYM>_CUD)` inline after each
+`BT_GATT_CHARACTERISTIC(...)` entry. Because the wrapper is function-like and
+its body never references the argument when disabled, the call site compiles
+identically in both states — the YAML toggle is the single point of control
+and no source files need editing when it flips.
+
+Trade-off: each CUD descriptor adds one attribute to the service's
+attribute table. Disable if you're tight on `CONFIG_BT_ATT_PREPARE_COUNT` or
+attr-table memory.
+
 ## How to change a value
 
 1. Edit `gatt.yaml` or `coap.yaml`.

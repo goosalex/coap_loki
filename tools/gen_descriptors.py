@@ -165,6 +165,64 @@ def render_gatt(doc: dict) -> str:
         lines.append(f"    BT_UUID_DECLARE_128({macro_val})")
         lines.append("")
 
+    # Characteristic User Description (CUD) descriptors — UUID 0x2901.
+    # Service-wide toggle: `service.cud_enabled` in gatt.yaml (defaults to True).
+    #
+    # When enabled, the generator emits:
+    #   1. One `<PREFIX>_<SYM>_CUD` string macro per characteristic, sourced
+    #      from the per-characteristic `cud:` field if present, otherwise
+    #      from `name:` with underscores → spaces and Title-Case.
+    #   2. A `<PREFIX>_GATT_CUD_ITEM(label)` wrapper macro whose body is
+    #      `, BT_GATT_CUD(label, BT_GATT_PERM_READ)` — leading comma so the
+    #      firmware can drop it to nothing without touching the surrounding
+    #      BT_GATT_SERVICE_DEFINE punctuation.
+    #
+    # When disabled, only the wrapper macro is emitted (empty body) and no
+    # `<PREFIX>_<SYM>_CUD` labels appear in the generated header at all. The
+    # firmware's BT_GATT_SERVICE_DEFINE then compiles to the same attribute
+    # table it had before CUDs existed, with zero source-side changes.
+    cud_enabled = bool(svc.get("cud_enabled", True))
+    if chars:
+        if cud_enabled:
+            cud_macros: "list[tuple[str, str]]" = []
+            for ch in chars:
+                sym = ch["c_symbol"]
+                label = ch.get("cud") or ch["name"].replace("_", " ").title()
+                # Defensive: a stray double-quote in the label would break
+                # the C string literal we're about to emit.
+                if '"' in label:
+                    fatal(
+                        f"characteristic {ch['name']!r}: `cud:` value contains "
+                        f"a double-quote, which cannot be embedded in a C "
+                        f"string literal"
+                    )
+                cud_macros.append((f"{prefix}_{sym}_CUD", label))
+
+            lines.append("/* Characteristic User Description (CUD) labels — shown in")
+            lines.append(" * BLE debuggers (nRF Connect, BlueZ) next to the raw UUID.")
+            lines.append(" * Toggle in gatt.yaml: service.cud_enabled. */")
+            name_w = max(len(m) for m, _ in cud_macros)
+            for macro, label in cud_macros:
+                lines.append(f'#define {macro:<{name_w}} "{label}"')
+            lines.append("")
+
+            lines.append("/* Service-definition wrapper — used inside BT_GATT_SERVICE_DEFINE")
+            lines.append(" * as `LOKI_GATT_CUD_ITEM(LOKI_<SYM>_CUD)` after each")
+            lines.append(" * BT_GATT_CHARACTERISTIC entry. Leading comma keeps the surrounding")
+            lines.append(" * punctuation legal whether or not the body is empty. */")
+            lines.append(
+                f"#define {prefix}_GATT_CUD_ITEM(label) "
+                f", BT_GATT_CUD(label, BT_GATT_PERM_READ)"
+            )
+            lines.append("")
+        else:
+            lines.append("/* CUD descriptors disabled (service.cud_enabled = false in")
+            lines.append(" * gatt.yaml). The wrapper expands to nothing so call sites in")
+            lines.append(" * BT_GATT_SERVICE_DEFINE compile unchanged but emit no extra")
+            lines.append(" * attributes; no LOKI_*_CUD label macros are emitted. */")
+            lines.append(f"#define {prefix}_GATT_CUD_ITEM(label)")
+            lines.append("")
+
     lines.append("#endif /* LOKI_GATT_GENERATED_H */")
     lines.append("")
     return "\n".join(lines)

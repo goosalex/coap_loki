@@ -33,8 +33,9 @@ extern void bt_register(void);
 extern int bt_ready(void);
 
 /* Rename helpers — defined in main.c (where the loki settings handlers live).
- * Declared here so main_ble_utils.c's write_ble_name handler doesn't fall back
- * to an implicit-int declaration. Both are read-only over the buffer. */
+ * Declared here so main_ble_utils.c's write_short_name / write_long_name
+ * handlers don't fall back to an implicit-int declaration. Both are
+ * read-only over the buffer. */
 int modify_short_name(const char *buf, uint16_t len);
 void modify_full_name(const char *buf, uint16_t len);
 

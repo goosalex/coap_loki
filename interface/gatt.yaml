@@ -7,6 +7,18 @@ service:
   uuid: fcbd0001-5e25-4387-99b7-53a5495a0c35
   c_prefix: LOKI            # produces LOKI_SERVICE_UUID_VAL / LOKI_SERVICE_UUID
 
+  # Whether to emit Characteristic User Description (CUD) descriptors for the
+  # whole service. When true (default), the generator emits a `LOKI_*_CUD`
+  # string macro per characteristic plus a `LOKI_GATT_CUD_ITEM(label)` wrapper
+  # macro whose body expands to `, BT_GATT_CUD(label, BT_GATT_PERM_READ)` —
+  # BLE debuggers (nRF Connect, BlueZ) then render the labels next to UUIDs.
+  # When false, the per-character label macros are NOT emitted and the wrapper
+  # expands to nothing, so the firmware's BT_GATT_SERVICE_DEFINE compiles to
+  # exactly the same attribute table it had before CUDs were introduced. The
+  # firmware sources keep the same `LOKI_GATT_CUD_ITEM(...)` call sites
+  # regardless — only the wrapper's expansion changes.
+  cud_enabled: true
+
 # BLE naming constraints. Used both for documentation and for the
 # MAX_LEN_BLE_NAME / MAX_LEN_FULL_NAME / DEFAULT_NAME_PREFIX C macros.
 ble_name:
@@ -35,6 +47,7 @@ characteristics:
     properties: [read, write]
     type: uint16le
     unit: hertz
+    cud: "PWM Base"         # override — `name.title()` would give "Pwm Base"
 
   - name: direction
     c_symbol: DIRECTION
@@ -55,6 +68,7 @@ characteristics:
     uuid: fcbd0007-5e25-4387-99b7-53a5495a0c35
     properties: [read, write]
     type: uint16le
+    cud: "DCC Address"      # override — `name.title()` would give "Dcc Address"
 
   - name: joiner_credential
     c_symbol: CREDENTIAL
