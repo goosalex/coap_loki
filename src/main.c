@@ -525,7 +525,11 @@ void modify_full_name(const char *buf, uint16_t len)
 	if (strncmp(buf, full_name, len) == 0) {
 		return;
 	} else {
-		LOG_INF("Changing full name to %s\n", (buf));
+		/* `buf` is the raw GATT/CoAP write payload — NOT NUL-terminated.
+		 * Use %.*s + the explicit length so the print can't walk past it
+		 * and dump adjacent memory (which is exactly what made name
+		 * changes look "confused" in the log). */
+		LOG_INF("Changing full name to %.*s", (int)len, buf);
 		re_register_coap_service(openthread_get_default_instance(), &long_name_coap_service, buf, SRP_LONGNAME_SERVICE);
 	}
 
@@ -555,7 +559,9 @@ int modify_short_name(const char *buf, uint16_t len)
 	if (strncmp(buf, ble_name, len) == 0) {
 		return 0;
 	} else {
-		LOG_INF("Changing short name to %s\n", (buf));
+		/* `buf` is the raw GATT write payload — NOT NUL-terminated. Use
+		 * %.*s with the explicit length to bound the print. */
+		LOG_INF("Changing short name to %.*s", (int)len, buf);
 		re_register_coap_service(openthread_get_default_instance(), &short_name_coap_service, buf, SRP_SHORTNAME_SERVICE);
 	}
 

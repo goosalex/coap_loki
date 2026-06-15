@@ -514,14 +514,25 @@ void ble_lifecycle_force_recovery(void)
 
 
 
-void refresh_advertising_data(struct k_work *work){
-  int err;
-  err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
-  if(err) {
-	LOG_ERR("Error updating advertising data: %d\n", err);
-  } else {
-	LOG_INF("Updated advertising data\n");
-  }
+void refresh_advertising_data(struct k_work *work)
+{
+	int err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+
+	if (err == -EAGAIN) {
+		/* Advertising is currently paused — almost always because a BLE
+		 * client is connected (legacy advertising stops during a
+		 * connection on single-radio controllers). The ad[]/sd[] arrays
+		 * have already been updated by updateBleShortName /
+		 * updateBleLongName; the next bt_le_adv_start (run from
+		 * start_advertising on disconnect) will push them to the
+		 * controller. Not an error — keep at DEBUG so a name write
+		 * while connected doesn't spam the ERR log. */
+		LOG_DBG("Adv-data update deferred to next bt_le_adv_start (-EAGAIN)");
+	} else if (err) {
+		LOG_ERR("Error updating advertising data: %d", err);
+	} else {
+		LOG_INF("Updated advertising data");
+	}
 }
 
 K_WORK_DEFINE(refresh_advertising_data_work, refresh_advertising_data);
