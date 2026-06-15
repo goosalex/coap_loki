@@ -578,6 +578,14 @@ int modify_short_name(const char *buf, uint16_t len)
 	} else {
 		LOG_INF("Saved short name to NVM: %s\n", ble_name);
 	}
+
+	/* Refresh the on-device display. boot path calls display_updateName
+	 * once at startup (main.c:722); without this line a rename via BLE
+	 * persists and reaches the BLE controller but the LVGL screen keeps
+	 * showing the old name until the next reboot. The no-display build
+	 * variant has a stub at displays/no_display.c. */
+	display_updateName(ble_name);
+
 	/* updateBleShortName submits the advertising-data refresh work, so
 	 * the new short name reaches the controller on the next advertising
 	 * interval — no disconnect required. */
