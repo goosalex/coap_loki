@@ -68,10 +68,33 @@ void apply_current_acceleration(){
 	notify_motion_change();
 }
 
-void re_apply_acceleration(struct k_timer *timer_id){
-	LOG_DBG("Timer elapsed");
+/* The K_TIMER expiry callback below runs in ISR context, but the
+ * acceleration step ultimately calls display_updateDirectionAndSpeed (LVGL
+ * + display-bus mutexes) and bt_gatt_notify_uuid — both illegal from an
+ * ISR (Zephyr asserts "mutexes cannot be used inside ISRs"). Defer the
+ * work to the system workqueue so the application logic runs in thread
+ * context. The same applies if any future addition to
+ * apply_current_acceleration touches anything blocking. */
+static void accel_apply_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
 	apply_current_acceleration();
-	if (speed_value == 0) k_timer_stop(&my_timer);
+	/* Stop the periodic timer once we've decelerated to a halt with no
+	 * pending acceleration order — checked after the apply step so the
+	 * tick that brings speed to 0 is the one that arms the stop. */
+	if (speed_value == 0 && accel_order == 0) {
+		k_timer_stop(&my_timer);
+	}
+}
+K_WORK_DEFINE(accel_apply_work, accel_apply_work_handler);
+
+void re_apply_acceleration(struct k_timer *timer_id)
+{
+	/* ISR context — submit the actual work to the system workqueue. Do
+	 * NOT call apply_current_acceleration here directly: it touches
+	 * mutex-protected subsystems (display, BLE GATT) and would trip
+	 * Zephyr's ISR-mutex assert. */
+	k_work_submit(&accel_apply_work);
 }
 
  void speed_set_acceleration(int8_t new_state)
