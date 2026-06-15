@@ -10,6 +10,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/byteorder.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/logging/log.h>
 
 #include <zephyr/bluetooth/bluetooth.h>
@@ -35,67 +36,13 @@ static struct bt_conn *default_conn;
 
 LOG_MODULE_REGISTER(loki_ble, CONFIG_COAP_SERVER_LOG_LEVEL);
 
-/* Loki Service UUIDs using BT_UUID_DECLARE_128 macro */
-// loki_service_uuid formatted as UUID is fcbd0001-5e25-4387-99b7-53a5495a0c35
-#define LOKI_SERVICE_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0001, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_SERVICE_UUID \
-    BT_UUID_DECLARE_128(LOKI_SERVICE_UUID_VAL)
-
-// Speed characteristic
-// formatted as UUID is fcbd0002-5e25-4387-99b7-53a5495a0c35
-#define LOKI_SPEED_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0002, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_SPEED_UUID \
-    BT_UUID_DECLARE_128(LOKI_SPEED_UUID_VAL)
-
-// Accelerate characteristic
-// formatted as UUID is fcbd0003-5e25-4387-99b7-53a5495a0c35
-#define LOKI_ACCELERATE_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0003, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_ACCELERATE_UUID \
-    BT_UUID_DECLARE_128(LOKI_ACCELERATE_UUID_VAL)
-
-// PWM characteristic
-// formatted as UUID is fcbd0004-5e25-4387-99b7-53a5495a0c35
-#define LOKI_PWM_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0004, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_PWM_UUID \
-    BT_UUID_DECLARE_128(LOKI_PWM_UUID_VAL)
-
-// Direction characteristic
-// formatted as UUID is fcbd0005-5e25-4387-99b7-53a5495a0c35
-#define LOKI_DIRECTION_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0005, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_DIRECTION_UUID \
-    BT_UUID_DECLARE_128(LOKI_DIRECTION_UUID_VAL)
-
-// Long Name characteristic
-// formatted as UUID is fcbd0006-5e25-4387-99b7-53a5495a0c35
-#define LOKI_NAME_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0006, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_NAME_UUID \
-    BT_UUID_DECLARE_128(LOKI_NAME_UUID_VAL)
-
-// virtual (DCC) address characteristic
-// formatted as UUID is fcbd0007-5e25-4387-99b7-53a5495a0c35
-#define LOKI_DCC_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd0007, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_DCC_UUID \
-    BT_UUID_DECLARE_128(LOKI_DCC_UUID_VAL)
-
-// OpenThread Joiner Credential
-// see https://openthread.io/guides/border-router/external-commissioning/prepare#prepare_the_joiner_device
-// formatted as UUID is fcbd000a-5e25-4387-99b7-53a5495a0c35
-#define LOKI_CREDENTIAL_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd000a, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_CREDENTIAL_UUID \
-    BT_UUID_DECLARE_128(LOKI_CREDENTIAL_UUID_VAL)
-
-#define LOKI_BLE_NAME_UUID_VAL \
-    BT_UUID_128_ENCODE(0xfcbd000b, 0x5e25, 0x4387, 0x99b7, 0x53a5495a0c35)
-#define LOKI_BLE_NAME_UUID \
-    BT_UUID_DECLARE_128(LOKI_BLE_NAME_UUID_VAL)
+/* GATT service + characteristic UUID macros (LOKI_*_UUID_VAL / LOKI_*_UUID)
+ * come from interface/gatt.yaml via tools/gen_descriptors.py — included
+ * transitively through main_ble_utils.h → loki_gatt.h.
+ *
+ * See the OpenThread joiner-credential docs for the credential characteristic:
+ *   https://openthread.io/guides/border-router/external-commissioning/prepare#prepare_the_joiner_device
+ */
 
 
 
@@ -186,44 +133,46 @@ static void speed_ccc_cfg_changed(const struct bt_gatt_attr *attr,
 	}
 }
 
-static _ssize_t read_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+static _ssize_t read_long_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
               void *buf, uint16_t len, uint16_t offset)
 {
-    char *name = getBleLongName();
-    return bt_gatt_attr_read(conn, attr, buf, len, offset, name, strlen(name));                     
+    const char *name = getBleLongName();
+    return bt_gatt_attr_read(conn, attr, buf, len, offset, name, strlen(name));
 }
 
-static _ssize_t write_name(struct bt_conn *conn,
+static _ssize_t write_long_name(struct bt_conn *conn,
                const struct bt_gatt_attr *attr, const void *buf,
                uint16_t len, uint16_t offset, uint8_t flags)
 {
-    int err;
-	
-		char new_name[MAX_LEN_FULL_NAME];
-    if (len > sizeof(new_name)) {
+    /* +1 leaves room for the NUL terminator written below — without it,
+     * a write of exactly MAX_LEN_FULL_NAME bytes overflowed by one. */
+    char new_name[MAX_LEN_FULL_NAME + 1];
+    if (len > MAX_LEN_FULL_NAME) {
         return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
     }
 
     memcpy(new_name, buf, len);
     new_name[len] = '\0';
 
-    err = updateBleLongName(new_name);
-    if (err) {
-        return BT_GATT_ERR(BT_ATT_ERR_UNLIKELY);
-    }
+    /* Symmetric with write_short_name → modify_short_name: route through
+     * modify_full_name so a long-name change copies into the global
+     * full_name (no dangling pointer into this stack frame after we
+     * return), re-registers the _name SRP service, persists to NVS, and
+     * pushes the new scan-response data to the BLE controller. */
+    modify_full_name(new_name, len);
 
     return len;
 }
 
-static _ssize_t read_ble_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+static _ssize_t read_short_name(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 			  void *buf, uint16_t len, uint16_t offset)
 {
-	char *name = getBleShortName();
-	return bt_gatt_attr_read(conn, attr, buf, len, offset, name, strlen(name));                     
+	const char *name = getBleShortName();
+	return bt_gatt_attr_read(conn, attr, buf, len, offset, name, strlen(name));
 }
 
 
-static _ssize_t write_ble_name(struct bt_conn *conn,
+static _ssize_t write_short_name(struct bt_conn *conn,
 			   const struct bt_gatt_attr *attr, const void *buf,
 			   uint16_t len, uint16_t offset, uint8_t flags)
 {
@@ -251,15 +200,14 @@ static ssize_t write_dcc(struct bt_conn *conn,
 			   const struct bt_gatt_attr *attr, const void *buf,
 			   uint16_t len, uint16_t offset, uint8_t flags)
 {
-	u_int16_t value;
+	uint16_t value;
 	if (len < sizeof(uint16_t)) {
 		value = *(uint8_t *)buf;
 	} else {
 		value = sys_get_le16(buf);
 	}
-	dcc_address = value;
+	apply_dcc_address(value);
 	return len;
-	
 }
 
 static ssize_t read_credential(struct bt_conn *conn, const struct bt_gatt_attr *attr,
@@ -290,54 +238,59 @@ static ssize_t write_credential(struct bt_conn *conn,
 }
 
 /* Loki Service Declaration */
+/* CUD descriptors are gated by service.cud_enabled in interface/gatt.yaml.
+ * The generator emits LOKI_GATT_CUD_ITEM(label) either as
+ *   ", BT_GATT_CUD(label, BT_GATT_PERM_READ)"   (enabled)
+ * or as an empty expansion (disabled). The leading comma is part of the
+ * macro, so the BT_GATT_CHARACTERISTIC lines below carry no trailing comma
+ * of their own — flipping the YAML toggle keeps the punctuation legal both
+ * ways without touching this file. */
 BT_GATT_SERVICE_DEFINE(
     loki_service, BT_GATT_PRIMARY_SERVICE(LOKI_SERVICE_UUID),
-    // Acceleration Characteristic
-    // Properties: Read, Write
+    // Acceleration Characteristic — Properties: Read, Write
     BT_GATT_CHARACTERISTIC(LOKI_ACCELERATE_UUID,
                    BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE, BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
                 read_accelation, write_accelation,
-                   &accel_order),
-    // Speed Characteristic
-    // Properties: Read, Write, Notify
+                   &accel_order) LOKI_GATT_CUD_ITEM(LOKI_ACCELERATE_CUD),
+    // Speed Characteristic — Properties: Read, Write, Notify
     BT_GATT_CHARACTERISTIC(LOKI_SPEED_UUID,
                    BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE | BT_GATT_CHRC_NOTIFY,
                    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-                   read_speed, write_speed, &speed_value),
-    // Speed Change  CCCD (used for Notifications and Indications)
-     BT_GATT_CCC(speed_ccc_cfg_changed,
-            BT_GATT_PERM_READ | BT_GATT_PERM_WRITE) ,
+                   read_speed, write_speed, &speed_value) LOKI_GATT_CUD_ITEM(LOKI_SPEED_CUD),
+    // Speed Change CCCD (used for Notifications and Indications)
+    BT_GATT_CCC(speed_ccc_cfg_changed,
+                BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
 
     BT_GATT_CHARACTERISTIC(LOKI_PWM_UUID,
                    BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-                   read_pwm, write_pwm, &pwm_base),
+                   read_pwm, write_pwm, &pwm_base) LOKI_GATT_CUD_ITEM(LOKI_PWM_CUD),
 
     BT_GATT_CHARACTERISTIC(LOKI_DIRECTION_UUID,
                    BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-                   read_direction, write_direction, &direction_pattern),
+                   read_direction, write_direction, &direction_pattern) LOKI_GATT_CUD_ITEM(LOKI_DIRECTION_CUD),
 
     BT_GATT_CHARACTERISTIC(LOKI_NAME_UUID,
                      BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                      BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-                     read_name, write_name, NULL),    
-  
+                     read_long_name, write_long_name, NULL) LOKI_GATT_CUD_ITEM(LOKI_NAME_CUD),
+
     BT_GATT_CHARACTERISTIC(LOKI_DCC_UUID,
                      BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                      BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-                     read_dcc, write_dcc, NULL),    
+                     read_dcc, write_dcc, NULL) LOKI_GATT_CUD_ITEM(LOKI_DCC_CUD),
 
     // Setting the credential initiates a joiner procedure, reading you'll obtain the EUI64
     BT_GATT_CHARACTERISTIC(LOKI_CREDENTIAL_UUID,
                      BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                      BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-                     read_credential, write_credential, NULL),    	
+                     read_credential, write_credential, NULL) LOKI_GATT_CUD_ITEM(LOKI_CREDENTIAL_CUD),
 
     BT_GATT_CHARACTERISTIC(LOKI_BLE_NAME_UUID,
                      BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE,
                      BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-                     read_ble_name, write_ble_name, NULL)  
+                     read_short_name, write_short_name, NULL) LOKI_GATT_CUD_ITEM(LOKI_BLE_NAME_CUD)
 
                    );				   
 
@@ -374,10 +327,20 @@ static void disconnected_cb(struct bt_conn *conn, uint8_t reason)
 		bt_conn_unref(default_conn);
 		default_conn = NULL;
 	}
-	// The names might have changed, so update the advertising data
+	/* The advertising-data refresh used to happen here on every disconnect.
+	 * It now fires immediately from updateBleLongName / updateBleShortName
+	 * (which are reached via modify_full_name / modify_short_name), so a
+	 * name change applies to the next advertising interval rather than
+	 * waiting for the client to disconnect. Originally disabled here for
+	 * Android-14 compatibility — leave commented. */
 	// bt_submit_refresh_advertising_data_work();
-	// After disconnect, advertising might not be active
-	bt_submit_start_advertising_work();
+	/* After disconnect, advertising might not be active — but only resume
+	 * if the lifecycle controller still wants us to advertise. Once Thread
+	 * has been attached long enough for ble_stop_handler to fire, we leave
+	 * BLE off until Thread detaches or /ble-recovery is invoked. */
+	if (atomic_get(&ble_should_advertise)) {
+		bt_submit_start_advertising_work();
+	}
 }
 
 static struct bt_conn_cb conn_callbacks = {
@@ -395,51 +358,50 @@ static struct bt_data sd[] = {
 
  int updateBleLongName(char *newName) {
   int err;
-  
-  // Update the device name
-  printk("Set new name: %s\n",newName);
-  err = bt_set_name(newName);
-  if(err) {
-    printk("Error setting device name: %d\n", err);
-  } else {
-printk("Changed device name to: %s\n", newName);
-    // Update the advertising and scan response data needed to update the advertised device name
-    // Only need to modify the scan response data in this example as name is in scan response here.
-    sd->data = newName;
-    sd->data_len = strlen(newName);
 
-    if(err) {
-      printk("Error setting advertised names: %d\n", err);
-	  /* -11 means: not currently advertising
-	  	if (!atomic_test_bit(adv->flags, BT_ADV_ENABLED)) {
-		return -EAGAIN;
-	}
-	  */
-    } else {
-      printk("Changed advertised long name to: %s\n", newName);
-    }
+  LOG_INF("Set new long name: %s", newName);
+  err = bt_set_name(newName);
+  if (err) {
+    LOG_ERR("Error setting device name: %d", err);
+    return err;
   }
-  return err;
+
+  /* The long name lives in the scan response (the advertising payload is
+   * full with the 128-bit service UUID + flags + short name). Point the
+   * `sd` entry at the caller's stable buffer — modify_full_name copies
+   * into the global full_name first, so this pointer is good for the
+   * lifetime of the BLE service. */
+  sd->data = (const uint8_t *)newName;
+  sd->data_len = strlen(newName);
+
+  /* Push the updated scan-response to the controller. Triggered from
+   * here (rather than on disconnect, where it used to live) so the
+   * change applies to the next advertising interval — see the matching
+   * note in disconnected_cb. */
+  bt_submit_refresh_advertising_data_work();
+
+  LOG_INF("Changed advertised long name to: %s", newName);
+  return 0;
 }
 
  int updateBleShortName(char *newName) {
-  int err;
-  /* Advertising data */
-// Problem: The payload is limited to 31 bytes, so the name shound not be too long
-// and as this is a custom service, a 16 Byte UUID is needed
-// Solution: Use the short name and the scan response to send the full name
-// Problem: The scan response is not always sent, so the name may not be updated 
+  /* Short name lives in the advertising payload (the scan response carries
+   * the long name). The 31-byte payload budget is fixed: flags + 128-bit
+   * service UUID + the short-name slot below; long-form names go to the
+   * scan response via updateBleLongName. */
+  LOG_INF("Set new advertised short name: %s", newName);
 
+  int ad_name_idx = BLE_ADV_DATA_NAME_IDX;
+  ad[ad_name_idx].data = (const uint8_t *)newName;
+  ad[ad_name_idx].data_len = strlen(newName);
 
-  // Update the device name
-  LOG_INF("Set new advertised name: %s\n",newName);
+  /* Push the updated advertising payload to the controller. Triggered
+   * from here (rather than on disconnect, where it used to live) so the
+   * change applies to the next advertising interval — see the matching
+   * note in disconnected_cb. */
+  bt_submit_refresh_advertising_data_work();
 
-	int ad_name_idx = BLE_ADV_DATA_NAME_IDX;
-	ad[ad_name_idx].data = (const uint8_t *)newName;
-	ad[ad_name_idx].data_len = strlen(newName);
-	
-
-  return err;
+  return 0;
 }
 
 void start_advertising(struct k_work *work) {
@@ -453,7 +415,12 @@ void start_advertising(struct k_work *work) {
 		.interval_max = BT_GAP_ADV_FAST_INT_MAX_2,
 		.peer = NULL,
 	};
-  
+
+  if (!atomic_get(&ble_should_advertise)) {
+	LOG_DBG("start_advertising skipped: BLE intentionally off");
+	return;
+  }
+
   err = bt_le_adv_start(&adv_param, ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
   if (err) {
 	LOG_ERR("Advertising failed to start (err %d)\n", err);
@@ -466,21 +433,106 @@ void start_advertising(struct k_work *work) {
 }
 K_WORK_DEFINE(start_advertising_work, start_advertising);
 
- char *getBleLongName() {
-  char *name = bt_get_name();
-  return name;
+/* -- BLE advertising lifecycle controller ------------------------------------
+ * Default state on boot is "advertise". On a successful Thread attach the
+ * stop work is scheduled for CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES, after
+ * which advertising is halted. A Thread detach cancels the pending stop and
+ * resumes advertising. A CoAP PUT to /ble-recovery (see loki_coap_utils) or a
+ * call to ble_lifecycle_force_recovery() from any TU (e.g. OpenThread code on
+ * SRP registration failure) forces a fresh window. Setting the Kconfig value
+ * to 0 disables the feature.
+ *
+ * `ble_should_advertise` is the single shared atomic backing the intent flag,
+ * declared `extern` in main_ble_utils.h so other TUs may inspect it directly.
+ * Prefer the ble_lifecycle_* API where possible — those helpers also drive
+ * the stop work, which a raw atomic flip won't.
+ */
+atomic_t ble_should_advertise = ATOMIC_INIT(1);
+
+static void ble_stop_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	if (!atomic_get(&ble_should_advertise)) {
+		return; /* already stopped, or recovery flipped intent back on */
+	}
+	LOG_INF("Thread attached for >%d min, stopping BLE advertising",
+		CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES);
+	atomic_set(&ble_should_advertise, 0);
+	int err = bt_le_adv_stop();
+	if (err && err != -EALREADY) {
+		LOG_WRN("bt_le_adv_stop returned %d", err);
+	}
+	display_updateBTConnectionStatus("off");
+}
+static K_WORK_DELAYABLE_DEFINE(ble_stop_work, ble_stop_handler);
+
+void ble_lifecycle_on_thread_attached(void)
+{
+	if (CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES == 0) {
+		return; /* feature disabled */
+	}
+	LOG_INF("Thread attached; BLE advertising will stop in %d min",
+		CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES);
+	k_work_reschedule(&ble_stop_work,
+			  K_MINUTES(CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES));
+}
+
+void ble_lifecycle_on_thread_detached(void)
+{
+	int was_pending = k_work_cancel_delayable(&ble_stop_work);
+	atomic_val_t prev = atomic_set(&ble_should_advertise, 1);
+	if (prev == 0) {
+		LOG_INF("Thread detached; resuming BLE advertising "
+			"(stop-timer %s)",
+			was_pending > 0 ? "was pending" : "not pending");
+		bt_submit_start_advertising_work();
+	} else if (was_pending > 0) {
+		LOG_INF("Thread detached; cancelled pending BLE stop");
+	}
+}
+
+void ble_lifecycle_force_recovery(void)
+{
+	if (CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES == 0) {
+		LOG_INF("BLE recovery requested but feature is disabled");
+		return;
+	}
+	LOG_INF("BLE recovery requested; (re-)opening advertising window for "
+		"%d min", CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES);
+	atomic_val_t prev = atomic_set(&ble_should_advertise, 1);
+	if (prev == 0) {
+		bt_submit_start_advertising_work();
+	}
+	k_work_reschedule(&ble_stop_work,
+			  K_MINUTES(CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES));
+}
+/* ---------------------------------------------------------------------------*/
+
+ const char *getBleLongName(void) {
+  return bt_get_name();
 }
 
 
 
-void refresh_advertising_data(struct k_work *work){
-  int err;
-  err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
-  if(err) {
-	LOG_ERR("Error updating advertising data: %d\n", err);
-  } else {
-	LOG_INF("Updated advertising data\n");
-  }
+void refresh_advertising_data(struct k_work *work)
+{
+	int err = bt_le_adv_update_data(ad, ARRAY_SIZE(ad), sd, ARRAY_SIZE(sd));
+
+	if (err == -EAGAIN) {
+		/* Advertising is currently paused — almost always because a BLE
+		 * client is connected (legacy advertising stops during a
+		 * connection on single-radio controllers). The ad[]/sd[] arrays
+		 * have already been updated by updateBleShortName /
+		 * updateBleLongName; the next bt_le_adv_start (run from
+		 * start_advertising on disconnect) will push them to the
+		 * controller. Not an error — keep at DEBUG so a name write
+		 * while connected doesn't spam the ERR log. */
+		LOG_DBG("Adv-data update deferred to next bt_le_adv_start (-EAGAIN)");
+	} else if (err) {
+		LOG_ERR("Error updating advertising data: %d", err);
+	} else {
+		LOG_INF("Updated advertising data");
+	}
 }
 
 K_WORK_DEFINE(refresh_advertising_data_work, refresh_advertising_data);
@@ -493,16 +545,20 @@ void bt_submit_refresh_advertising_data_work() {
 }
 
 
- char *getBleShortName() {
+ const char *getBleShortName(void) {
 	int ad_name_idx = BLE_ADV_DATA_NAME_IDX;
-  return ad[ad_name_idx].data;
+  return (const char *)ad[ad_name_idx].data;
 }
 
 void bt_notify_speed(void)
 {
-
-    bt_gatt_notify(NULL, &loki_service.attrs[1], &speed_value,
-                   sizeof(speed_value));
+	/* Locate the Speed value attribute by UUID rather than by index, so any
+	 * reordering of characteristics in BT_GATT_SERVICE_DEFINE doesn't
+	 * silently break notifications. The previous `&attrs[1]` pointed at
+	 * the Acceleration characteristic declaration once the service grew
+	 * past one entry. */
+	bt_gatt_notify_uuid(NULL, LOKI_SPEED_UUID, loki_service.attrs,
+			    &speed_value, sizeof(speed_value));
 }
 
 int bt_ready(void)

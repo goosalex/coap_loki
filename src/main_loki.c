@@ -1,7 +1,13 @@
 #include "main_loki.h"
+#include "main_ot_utils.h"
+#include "main_ble_utils.h"   /* for ble_lifecycle_force_recovery() on SRP failures */
 #include "motors/motor.h"
 #include "displays/main_display.h"
 #include <zephyr/logging/log.h>
+#include <openthread.h>              /* openthread_mutex_{lock,unlock} (void-arg, non-deprecated) */
+#include <zephyr/settings/settings.h>
+#include <string.h>
+#include <stdio.h>
 
 
 #if !DT_HAS_ALIAS(motor0)
@@ -62,10 +68,33 @@ void apply_current_acceleration(){
 	notify_motion_change();
 }
 
-void re_apply_acceleration(struct k_timer *timer_id){
-	LOG_DBG("Timer elapsed");
+/* The K_TIMER expiry callback below runs in ISR context, but the
+ * acceleration step ultimately calls display_updateDirectionAndSpeed (LVGL
+ * + display-bus mutexes) and bt_gatt_notify_uuid — both illegal from an
+ * ISR (Zephyr asserts "mutexes cannot be used inside ISRs"). Defer the
+ * work to the system workqueue so the application logic runs in thread
+ * context. The same applies if any future addition to
+ * apply_current_acceleration touches anything blocking. */
+static void accel_apply_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
 	apply_current_acceleration();
-	if (speed_value == 0) k_timer_stop(&my_timer);
+	/* Stop the periodic timer once we've decelerated to a halt with no
+	 * pending acceleration order — checked after the apply step so the
+	 * tick that brings speed to 0 is the one that arms the stop. */
+	if (speed_value == 0 && accel_order == 0) {
+		k_timer_stop(&my_timer);
+	}
+}
+K_WORK_DEFINE(accel_apply_work, accel_apply_work_handler);
+
+void re_apply_acceleration(struct k_timer *timer_id)
+{
+	/* ISR context — submit the actual work to the system workqueue. Do
+	 * NOT call apply_current_acceleration here directly: it touches
+	 * mutex-protected subsystems (display, BLE GATT) and would trip
+	 * Zephyr's ISR-mutex assert. */
+	k_work_submit(&accel_apply_work);
 }
 
  void speed_set_acceleration(int8_t new_state)
@@ -121,6 +150,84 @@ void change_direction(uint8_t new_pattern){
 	}
 }
 
+/* Build/refresh the SRP service registration for the current DCC address and
+ * (re-)bind the Loconet UDP listener. Idempotent: any prior entry is freed
+ * first, so this is safe to call from boot and from runtime DCC changes.
+ * No-op if dcc_address is 0 or the OpenThread instance is not available. */
+void register_dcc_service(void)
+{
+	otInstance *p = openthread_get_default_instance();
+	if (p == NULL) {
+		LOG_WRN("DCC SRP register skipped: no OpenThread instance");
+		return;
+	}
+
+	/* Reachable from the main thread (boot), the BLE write_dcc thread
+	 * (via apply_dcc_address), and potentially from a future CoAP handler
+	 * on the OT thread. Hold the OT API mutex for the duration. The OT
+	 * mutex is recursive, so a future caller already holding it is fine. */
+	openthread_mutex_lock();
+
+	/* Tear down any previous registration so SRP slots are not leaked when
+	 * the DCC address is changed at runtime. */
+	if (dcc_name_coap_service != NULL) {
+		LOG_INF("Freeing previous DCC SRP entry");
+		otSrpClientBuffersFreeService(p, dcc_name_coap_service);
+		dcc_name_coap_service = NULL;
+	}
+
+	if (dcc_address == 0) {
+		LOG_INF("DCC unset; no SRP registration");
+		openthread_mutex_unlock();
+		return;
+	}
+
+	char dcc_string[6]; /* uint16 max is 65535 = 5 chars + NUL */
+	snprintf(dcc_string, sizeof(dcc_string), "%u", dcc_address);
+
+	otSrpClientBuffersServiceEntry *entry = register_service(
+		p, dcc_string, SRP_LCN_SERVICE, SRP_LCN_PORT);
+	if (entry == NULL) {
+		LOG_ERR("Failed to allocate DCC SRP service entry");
+		openthread_mutex_unlock();
+		/* Re-open the BLE window so the loco stays reachable while
+		 * SRP can't take the DCC registration. Gated by
+		 * CONFIG_LOKI_BLE_RECOVERY_ON_SRP_FAIL. */
+		ble_lifecycle_recover_on_srp_failure();
+		return;
+	}
+	dcc_name_coap_service = entry;
+
+	bindUdpHandler(p, &loconet_udp_socket, SRP_LCN_PORT,
+		       on_udp_loconet_receive);
+	LOG_INF("UDP port %d is listening for LNet messages addressing #%s",
+		SRP_LCN_PORT, dcc_string);
+
+	openthread_mutex_unlock();
+}
+
+void apply_dcc_address(uint16_t new_dcc)
+{
+	if (new_dcc == dcc_address) {
+		LOG_INF("DCC unchanged at %u", dcc_address);
+		return;
+	}
+	LOG_INF("DCC address %u -> %u", dcc_address, new_dcc);
+	dcc_address = new_dcc;
+
+	int rc = settings_save_subtree("loki/dcc");
+	if (rc) {
+		LOG_ERR("Error saving DCC to NVM: %d", rc);
+	} else {
+		LOG_INF("Saved DCC to NVM: %u", dcc_address);
+	}
+
+	/* Best-effort SRP update. If Thread/SRP isn't up yet the call logs and
+	 * returns; the persisted value will be picked up by the boot path on
+	 * the next attach. */
+	register_dcc_service();
+}
+
 void define_light(){
 	LOG_DBG("noop");
 }
@@ -129,7 +236,7 @@ void define_light(){
    color: on: 0xFF......, off: 0x00...... , rgb: 0xA0RRGGBB 
 
 */
-void set_lights(u_int8_t side, u_int32_t color, u_int8_t pattern){
+void set_lights(uint8_t side, uint32_t color, uint8_t pattern){
 	LOG_DBG("noop");
 }
 
@@ -183,8 +290,8 @@ void on_udp_loconet_receive(void *aContext, otMessage *aMessage, const otMessage
     int  length;
 	char string[OT_IP6_ADDRESS_STRING_SIZE];
 	const int OPC_WR_SL_DATA = 0xEF;
-	u_int8_t ADR,ADR2;
-	u_int16_t ADR16;
+	uint8_t ADR,ADR2;
+	uint16_t ADR16;
 
 	otIp6AddressToString(&aMessageInfo->mPeerAddr, string, sizeof(string));
     LOG_INF("%d bytes from %s", otMessageGetLength(aMessage) - otMessageGetOffset(aMessage), string);
@@ -200,7 +307,9 @@ void on_udp_loconet_receive(void *aContext, otMessage *aMessage, const otMessage
 			LOG_INF("Not for me. I am DCC %d", dcc_address);
 			return;	
 		}
-		uint8_t SPD, DIRF, STAT1;
+		/* SPD is mentioned in the Loconet spec block below but isn't parsed
+		 * yet — once the speed mapping is decoded, add it back here. */
+		uint8_t DIRF, STAT1;
 		STAT1 = buf[3];
 		LOG_INF("STAT1 Byte "BYTE_TO_BINARY_PATTERN, BYTE_TO_BINARY(STAT1));
 

@@ -27,6 +27,7 @@
 
 // CoaP
 #include <zephyr/net/openthread.h>
+#include <openthread.h>           /* openthread_mutex_lock/unlock (the non-deprecated, void-arg API) */
 #include <openthread/thread.h>
 #include <openthread/srp_client.h>
 #include <openthread/srp_client_buffers.h>
@@ -40,6 +41,7 @@
 
 #include "main_ble_utils.h"
 #include "main_ot_utils.h"
+#include "displays/main_display.h"   /* display_updateIPv6Address / display_updateOTConnectionStatus */
 
 
 LOG_MODULE_REGISTER(loki_ot, CONFIG_COAP_SERVER_LOG_LEVEL);
@@ -47,6 +49,14 @@ LOG_MODULE_REGISTER(loki_ot, CONFIG_COAP_SERVER_LOG_LEVEL);
 int enable_thread();
 // global variables
 otUdpSocket loconet_udp_socket;
+
+/* SRP buffer entry pointers — single definitions for the externs declared in
+ * main_ot_utils.h. NULL at startup (BSS); holds the pool pointer returned by
+ * otSrpClientBuffersAllocateService while a registration is live. */
+otSrpClientBuffersServiceEntry *short_name_coap_service;
+otSrpClientBuffersServiceEntry *long_name_coap_service;
+otSrpClientBuffersServiceEntry *dcc_name_coap_service;
+otSrpClientBuffersServiceEntry *loconet_udp_service;
 
 // local variables
 bool ot_is_enabled = false;
@@ -119,7 +129,6 @@ int disable_thread(otInstance *p_instance){
 
 int start_thread_joiner(char *secret)
 {
-
 	otInstance *p_instance = openthread_get_default_instance();
 	otError error = OT_ERROR_NONE;
 
@@ -131,27 +140,33 @@ int start_thread_joiner(char *secret)
 		// TODO: Implement active dataset
 		return -1;
 	}
+
+	/* This is invoked from the BLE write_credential handler — not the OT
+	 * thread — so we must own the OT API mutex while talking to OT. */
+	openthread_mutex_lock();
+
 	LOG_INF("Starting Thread Network reset\n");
 	// otInstanceFactoryReset(p_instance); // leads to complete reset, all non-volatile data is lost
 	error = otThreadBecomeDetached(p_instance); // detaches from current network
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Failed to detach from network: %s", otThreadErrorToString(error));
-
 	}
 	error = disable_thread(p_instance);
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Failed to disable current Thread settings: %s", otThreadErrorToString(error));
+		openthread_mutex_unlock();
 		return -1;
 	}
 	LOG_INF("Thread Network reset\n");
 	LOG_INF("Ensure Interface is up\n");
-	error = otIp6SetEnabled(p_instance, true);	
+	error = otIp6SetEnabled(p_instance, true);
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Failed to enable IP6: %s", otThreadErrorToString(error));
+		openthread_mutex_unlock();
 		return -1;
-	}	
+	}
 
-    LOG_INF("Starting joiner\n");
+	LOG_INF("Starting joiner\n");
 	error = otJoinerStart(p_instance,
 									secret,
 									NULL,
@@ -166,25 +181,22 @@ int start_thread_joiner(char *secret)
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Failed to start joiner: %s", otThreadErrorToString(error));
 		// -11: Invalid State : (Get<ThreadNetif>().IsUp() && Get<Mle::Mle>().GetRole() == Mle::kRoleDisabled,
+		openthread_mutex_unlock();
 		return -1;
 	}
 	LOG_INF("Joiner started\n");
+	openthread_mutex_unlock();
 	return error;
 }
 
 
-static // Typical callback signature for net_if_ip_addr_cb_t:  (for reference only)
-void print_ipv6_addr(struct net_if *iface, struct net_if_addr *if_addr, void *user_data)
-{
-    char addr_str[NET_IPV6_ADDR_LEN];
+/* (A reference-only `print_ipv6_addr` used to live here, mirroring the
+ *  display_pref_ipv6_addr below without the "preferred" filter. Removed
+ *  because nothing called it.) */
 
-    if_addr->address.family = AF_INET6;
-    net_addr_ntop(AF_INET6, &if_addr->address.in6_addr, addr_str, sizeof(addr_str));
-    printf("IPv6 address: %s\n", addr_str);
-}
-
-static // Applied callback signature for net_if_ip_addr_cb_t: to display preferred address only
-void display_pref_ipv6_addr(struct net_if *iface, struct net_if_addr *if_addr, void *user_data)
+/* Applied callback signature for net_if_ip_addr_cb_t — displays only the
+ * preferred address. */
+static void display_pref_ipv6_addr(struct net_if *iface, struct net_if_addr *if_addr, void *user_data)
 {
 	if (if_addr->addr_state == NET_ADDR_PREFERRED) {
 		char addr_str[NET_IPV6_ADDR_LEN];
@@ -196,74 +208,86 @@ void display_pref_ipv6_addr(struct net_if *iface, struct net_if_addr *if_addr, v
 	}
 }
 
-static void on_thread_address_changed(otChangedFlags flags, struct openthread_context *ot_context,
-				    void *user_data)
+/* New-API state-changed callbacks take (otChangedFlags, void *user_data).
+ * Use the openthread_get_default_{context,instance}() helpers for things
+ * that previously lived on the now-deprecated ot_context fields. */
+
+static void on_thread_address_changed(otChangedFlags flags, void *user_data)
 {
-	if ( (flags & OT_CHANGED_IP6_ADDRESS_ADDED) || (flags & OT_CHANGED_IP6_ADDRESS_REMOVED) ) {
+	ARG_UNUSED(user_data);
+
+	if ((flags & OT_CHANGED_IP6_ADDRESS_ADDED) ||
+	    (flags & OT_CHANGED_IP6_ADDRESS_REMOVED)) {
 		LOG_INF("Thread IP Address changed\n");
 
-        struct net_if *iface = ot_context->iface;
+		struct openthread_context *ot_context = openthread_get_default_context();
+		struct net_if *iface = ot_context ? ot_context->iface : NULL;
 		if (iface == NULL) {
 			LOG_ERR("No network interface found\n");
 			return;
 		}
 
-		// Iterate over all IPv6 addresses on the interface
-		// and call the callback function for each address
-		// only the preferred address will be displayed
-        net_if_ipv6_addr_foreach(iface,display_pref_ipv6_addr , NULL);
+		/* Iterate over all IPv6 addresses on the interface; only the
+		 * preferred one will be passed to the display callback. */
+		net_if_ipv6_addr_foreach(iface, display_pref_ipv6_addr, NULL);
 
-		if (srp_is_enabled){
+		if (srp_is_enabled) {
 			init_srp();
-		};
+		}
 	}
-	if ( (flags & OT_CHANGED_THREAD_ML_ADDR)  ) {
+	if (flags & OT_CHANGED_THREAD_ML_ADDR) {
 		LOG_INF("Thread ML Address changed\n");
-		if (srp_is_enabled){
+		if (srp_is_enabled) {
 			init_srp();
-		};
+		}
 	}
-		if ( (flags & OT_CHANGED_IP6_MULTICAST_SUBSCRIBED) || (flags & OT_CHANGED_IP6_MULTICAST_UNSUBSCRIBED) ) {
+	if ((flags & OT_CHANGED_IP6_MULTICAST_SUBSCRIBED) ||
+	    (flags & OT_CHANGED_IP6_MULTICAST_UNSUBSCRIBED)) {
 		LOG_INF("IPv6 Multicast subscriptions changed\n");
-		if (srp_is_enabled){
+		if (srp_is_enabled) {
 			init_srp();
-		};
+		}
 	}
 }
 
-static void on_thread_state_changed(otChangedFlags flags, struct openthread_context *ot_context,
-				    void *user_data)
+static void on_thread_state_changed(otChangedFlags flags, void *user_data)
 {
-	static int ret;
-if (flags & OT_CHANGED_THREAD_ROLE) {
-		switch (otThreadGetDeviceRole(ot_context->instance)) {
+	ARG_UNUSED(user_data);
+
+	if (flags & OT_CHANGED_THREAD_ROLE) {
+		switch (otThreadGetDeviceRole(openthread_get_default_instance())) {
 		case OT_DEVICE_ROLE_CHILD:
-			printk("OT new state  Childr\n");
+			printk("OT new state Child\n");
 			display_updateOTConnectionStatus("+Child");
-			break;			
+			ble_lifecycle_on_thread_attached();
+			break;
 		case OT_DEVICE_ROLE_ROUTER:
 			printk("OT new state Router\n");
 			display_updateOTConnectionStatus("+Router");
-			break;		
+			ble_lifecycle_on_thread_attached();
+			break;
 		case OT_DEVICE_ROLE_LEADER:
-			LOG_INF("Thread Role: Child/Router/Leader\n");
+			LOG_INF("Thread Role: Leader\n");
 			display_updateOTConnectionStatus("+Leader");
+			ble_lifecycle_on_thread_attached();
 			break;
 
 		case OT_DEVICE_ROLE_DISABLED:
 		case OT_DEVICE_ROLE_DETACHED:
 		default:
 			LOG_INF("Thread Role: Disabled/Detached\n");
-			// deactivate_provisionig();			
+			ble_lifecycle_on_thread_detached();
 			break;
 		}
 	}
 }
-static struct openthread_state_changed_cb ot_state_chaged_cb = { .state_changed_cb =
-									 on_thread_state_changed };
-// why this Zephyr function is called and not otSetStateChangedCallback() ? IDK
-static struct openthread_state_changed_cb ot_address_changed_cb = { .state_changed_cb =
-									 on_thread_address_changed };
+
+static struct openthread_state_changed_callback ot_state_chaged_cb = {
+	.otCallback = on_thread_state_changed,
+};
+static struct openthread_state_changed_callback ot_address_changed_cb = {
+	.otCallback = on_thread_address_changed,
+};
 
 
 
@@ -278,46 +302,44 @@ int enable_thread(){
 		return -1;
 	}
 	otError error = OT_ERROR_NONE;
-	otDeviceRole role = otThreadGetDeviceRole(p_instance);
 
-	if (role == OT_DEVICE_ROLE_CHILD) {
+	openthread_mutex_lock();
+
+	otDeviceRole role = otThreadGetDeviceRole(p_instance);
+	if (role == OT_DEVICE_ROLE_CHILD ||
+	    role == OT_DEVICE_ROLE_ROUTER ||
+	    role == OT_DEVICE_ROLE_LEADER) {
 		LOG_INF("Already connected to Thread network\n");
-		return 0;
-	}
-	if (role == OT_DEVICE_ROLE_ROUTER) {
-		LOG_INF("Already connected to Thread network\n");
-		return 0;
-	}
-	if (role == OT_DEVICE_ROLE_LEADER) {
-		LOG_INF("Already connected to Thread network\n");
+		openthread_mutex_unlock();
 		return 0;
 	}
 	LOG_INF("Enabling Thread network\n");
-	
 
-	if (0 != openthread_state_changed_cb_register(openthread_get_default_context(), &ot_state_chaged_cb)){
+	if (0 != openthread_state_changed_callback_register(&ot_state_chaged_cb)) {
 		LOG_ERR("OpenThread State Change Callback Registration failed\n");
-	};
-	if (0 != openthread_state_changed_cb_register(openthread_get_default_context(), &ot_address_changed_cb)){
+	}
+	if (0 != openthread_state_changed_callback_register(&ot_address_changed_cb)) {
 		LOG_ERR("OpenThread Address Change Callback Registration failed\n");
-	};
+	}
 	LOG_INF("OpenThread Callbacks registered\n");
 	LOG_INF("Starting IPv6 network\n");
 	error = otIp6SetEnabled(p_instance, true);
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Failed to enable IP6: %s", otThreadErrorToString(error));
+		openthread_mutex_unlock();
 		return -1;
 	}
 	LOG_INF("Starting Thread network\n");
 	error = otThreadSetEnabled(p_instance, true);
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Failed to enable Thread (error: %d)", error);
+		openthread_mutex_unlock();
 		return -1;
-	}	else {
+	} else {
 		LOG_INF("OpenThread Started\n");
 	}
+	openthread_mutex_unlock();
 	return 0;
-
 }
 
 	int get_Eui64(char *printable)
@@ -330,9 +352,12 @@ int enable_thread(){
 			LOG_ERR("Failed to get EUI64: %s", otThreadErrorToString(error));
 			return -1;
 		}
-		sprintf(printable, "%02X%02X%02X%02X%02X%02X%02X%02X",
-				eui64.m8[0], eui64.m8[1], eui64.m8[2], eui64.m8[3],
-				eui64.m8[4], eui64.m8[5], eui64.m8[6], eui64.m8[7]);
+		/* Caller passes a 17-byte buffer (8 hex pairs + NUL). Encoded here as
+		 * a literal because get_Eui64()'s signature carries no size. */
+		snprintk(printable, 8 * 2 + 1,
+			 "%02X%02X%02X%02X%02X%02X%02X%02X",
+			 eui64.m8[0], eui64.m8[1], eui64.m8[2], eui64.m8[3],
+			 eui64.m8[4], eui64.m8[5], eui64.m8[6], eui64.m8[7]);
 		return 0;
 	}
 
@@ -350,19 +375,24 @@ void srp_callback(otError error, const otSrpClientHostInfo *aHostInfo,
 
 void aSrpClientAutoStartCallback(const otSockAddr *aServerSockAddr, void *aContext);
 
-struct k_mutex srp_client_mutex;
-
 void init_srp() {
-	//if (k_mutex_lock(&srp_client_mutex, K_MSEC(100)) == 0) {
-    /* mutex successfully locked */
-
-
 	otError error;
 	otInstance *p_instance = openthread_get_default_instance();
 	otSrpClientBuffersServiceEntry *entry;
 	char *host_name;
-
 	uint16_t size;
+
+	if (p_instance == NULL) {
+		LOG_ERR("init_srp: no OpenThread instance");
+		return;
+	}
+
+	/* Serialize all OT API calls. init_srp is reached from the OT thread
+	 * (address-change callbacks, joiner callback) and from the main thread
+	 * (boot). The OT API mutex is recursive (k_mutex), so this is safe
+	 * even when the OT thread already holds the lock implicitly around
+	 * its own callback dispatch. */
+	openthread_mutex_lock();
 
 		if (otSrpClientIsRunning(p_instance)) {
 			otSrpClientStop(p_instance);
@@ -391,7 +421,8 @@ void init_srp() {
 			if (error != OT_ERROR_NONE) {
 				LOG_ERR("Cannot set SRP client host name: %s",
 						otThreadErrorToString(error));
-				k_mutex_unlock(&srp_client_mutex);
+				ble_lifecycle_recover_on_srp_failure();
+				openthread_mutex_unlock();
 				return;
 			}
 		}
@@ -399,38 +430,47 @@ void init_srp() {
 		if (error != OT_ERROR_NONE) {
 			LOG_ERR("Cannot enable auto host address mode: %s",
 					otThreadErrorToString(error));
-			k_mutex_unlock(&srp_client_mutex);
+			ble_lifecycle_recover_on_srp_failure();
+			openthread_mutex_unlock();
 			return;
 		} else {
 			LOG_INF("Auto host address mode enabled");
 		}
 
 		
-		if ( (&short_name_coap_service != NULL) && (&short_name_coap_service.mService)
-			&& strcmp(short_name_coap_service.mService.mInstanceName, ble_name) == 0 )
+		if (short_name_coap_service != NULL &&
+		    strcmp(short_name_coap_service->mService.mInstanceName, ble_name) == 0)
 		{
 			LOG_INF("Service %s already registered as %s", SRP_SHORTNAME_SERVICE, ble_name);
 		} else {
+			/* Drop any stale pool entry first so we don't leak a slot when
+			 * init_srp re-runs on address changes with a renamed loco. */
+			if (short_name_coap_service != NULL) {
+				otError err = otSrpClientRemoveService(p_instance, &short_name_coap_service->mService);
+				if (err != OT_ERROR_NONE) {
+					LOG_WRN("Cannot remove stale short-name SRP service: %d", err);
+				}
+				otSrpClientBuffersFreeService(p_instance, short_name_coap_service);
+				short_name_coap_service = NULL;
+			}
 			entry = register_coap_service(p_instance, ble_name, SRP_SHORTNAME_SERVICE);
 			if (entry == NULL) {
 				LOG_ERR("Cannot allocate new service entry under %s", SRP_SHORTNAME_SERVICE);
+				/* Re-open the BLE recovery window so the loco stays
+				 * reachable over GATT while SRP is broken. Gated by
+				 * CONFIG_LOKI_BLE_RECOVERY_ON_SRP_FAIL. */
+				ble_lifecycle_recover_on_srp_failure();
 			} else {
 				LOG_INF("Service %s registered as %s", SRP_SHORTNAME_SERVICE, ble_name);
-				short_name_coap_service = *entry;
+				short_name_coap_service = entry;
 			}
 		}
 		LOG_INF("Attempt to enable auto start mode");
 		otSrpClientEnableAutoStartMode(p_instance, &aSrpClientAutoStartCallback, NULL);
 		LOG_INF("SRP client initialized, waiting for callback");
 		srp_is_enabled = true; // initial setup done
-	//	k_mutex_unlock(&srp_client_mutex);
 
-	//} else {
-		LOG_WRN("Cannot lock Init SRP client routines\n");
-
-	//}
-
-	return;
+	openthread_mutex_unlock();
 }
 
 void aSrpClientAutoStartCallback(const otSockAddr *aServerSockAddr, void *aContext) {
@@ -444,41 +484,66 @@ void aSrpClientAutoStartCallback(const otSockAddr *aServerSockAddr, void *aConte
 	}
 }
 
-otSrpClientBuffersServiceEntry *register_coap_service( otInstance *p_instance ,  char *instance_name, char *service_name) {
+/* Clamp a caller-supplied port into the legal UDP/TCP range [1, 65535] or
+ * fall back to OT_DEFAULT_COAP_PORT for "undefined" (0), negative, or
+ * out-of-range values. Used by register_service / re_register_service —
+ * pre-§1.7 register_service silently ignored its port argument; this
+ * restores it with a safety net so callers can pass SRP_LCN_PORT etc. */
+static uint16_t srp_valid_or_default_port(int port)
+{
+	if (port <= 0 || port > UINT16_MAX) {
+		LOG_WRN("SRP register: port %d out of range, falling back to "
+			"OT_DEFAULT_COAP_PORT (%u)",
+			port, OT_DEFAULT_COAP_PORT);
+		return OT_DEFAULT_COAP_PORT;
+	}
+	return (uint16_t)port;
+}
+
+otSrpClientBuffersServiceEntry *register_coap_service( otInstance *p_instance ,  const char *instance_name, const char *service_name) {
 	return register_service(p_instance, instance_name, service_name, OT_DEFAULT_COAP_PORT);
 }
 
-int re_register_coap_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry *entry, char *instance_name, char *service_name) {
+int re_register_coap_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry **entry, const char *instance_name, const char *service_name) {
 	return re_register_service(p_instance, entry, instance_name, service_name, OT_DEFAULT_COAP_PORT);
 }
 
-int re_register_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry *entry, char *instance_name, char *service_name, int port) {
+/* Free the caller's existing SRP pool entry (if any) and allocate a fresh one
+ * with the given instance/service name. The caller's pointer (*entry) is
+ * rebound to the new pool address so subsequent free/lookup calls work.
+ * Pre-1.7 this function took an entry-by-pointer and reassigned a *local*
+ * copy — the caller's variable was never updated. */
+int re_register_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntry **entry, const char *instance_name, const char *service_name, int port) {
 	otError error;
 	char *instance_name_buf;
 	char *service_name_buf;
 	uint16_t size;
 
-	if (entry != NULL) {
-		error = otSrpClientRemoveService(p_instance, &entry->mService);
+	if (*entry != NULL) {
+		error = otSrpClientRemoveService(p_instance, &(*entry)->mService);
 		if (error != OT_ERROR_NONE) {
 			LOG_ERR("Cannot remove service: %s", otThreadErrorToString(error));
 			return -1;
 		}
-		otSrpClientBuffersFreeService(p_instance, entry);
-		entry = NULL;
+		otSrpClientBuffersFreeService(p_instance, *entry);
+		*entry = NULL;
 	}
-	entry = otSrpClientBuffersAllocateService(p_instance);
+	*entry = otSrpClientBuffersAllocateService(p_instance);
+	if (*entry == NULL) {
+		LOG_ERR("Cannot allocate new SRP service entry");
+		return -1;
+	}
 	instance_name_buf =
-		otSrpClientBuffersGetServiceEntryInstanceNameString(entry, &size);
+		otSrpClientBuffersGetServiceEntryInstanceNameString(*entry, &size);
 	memcpy(instance_name_buf, instance_name, strlen(instance_name) + 1);
 
 	service_name_buf =
-		otSrpClientBuffersGetServiceEntryServiceNameString(entry, &size);		
+		otSrpClientBuffersGetServiceEntryServiceNameString(*entry, &size);
 	memcpy(service_name_buf, service_name, strlen(service_name) + 1);
 
-	entry->mService.mPort = port;
+	(*entry)->mService.mPort = srp_valid_or_default_port(port);
 
-	error = otSrpClientAddService(p_instance, &entry->mService);
+	error = otSrpClientAddService(p_instance, &(*entry)->mService);
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Cannot re-add service: %s", otThreadErrorToString(error));
 		return -1;
@@ -489,7 +554,7 @@ int re_register_service( otInstance *p_instance ,  otSrpClientBuffersServiceEntr
 }
 
 
-otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  char *instance_name, char *service_name, int port) {
+otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  const char *instance_name, const char *service_name, int port) {
 	otError error;
 	char *instance_name_buf;
     char *service_name_buf;
@@ -507,7 +572,7 @@ otSrpClientBuffersServiceEntry *register_service( otInstance *p_instance ,  char
 	service_name_buf =
 		otSrpClientBuffersGetServiceEntryServiceNameString(entry, &size);
 	memcpy(service_name_buf, service_name, strlen(service_name) + 1);
-	entry->mService.mPort = OT_DEFAULT_COAP_PORT;
+	entry->mService.mPort = srp_valid_or_default_port(port);
 	error = otSrpClientAddService(p_instance, &entry->mService);
 	if (error != OT_ERROR_NONE) {
 		LOG_ERR("Cannot add service: %s", otThreadErrorToString(error));
@@ -551,24 +616,19 @@ int bindUdpHandler(otInstance *aInstance, otUdpSocket *aSocket, uint16_t port, o
 	return 0;
 }
 
-const bool mLinkSecurityEnabled = false;
-
 int sendOtUdpReply(otInstance *aInstance, otUdpSocket *sock, otMessageInfo *origMsgInfo, otMessage *msg){
 	int ret;
-	otIp6Address ip6adr;
-	u_int16_t port;
-	char *buf[OT_IP6_ADDRESS_STRING_SIZE];
-	ip6adr = origMsgInfo->mPeerAddr;
-	otIp6AddressToString(&ip6adr,buf,OT_IP6_ADDRESS_STRING_SIZE);
-	LOG_INF("Sending back reply to %s:%d",buf,port);
-	
-	otMessageSettings messageSettings = {mLinkSecurityEnabled, OT_MESSAGE_PRIORITY_NORMAL};
-	ret = otUdpSend(aInstance, sock, msg, origMsgInfo );
+	otIp6Address ip6adr = origMsgInfo->mPeerAddr;
+	uint16_t port = origMsgInfo->mPeerPort;
+	char buf[OT_IP6_ADDRESS_STRING_SIZE];   /* was `char *buf[…]`, an array of pointers */
+	otIp6AddressToString(&ip6adr, buf, OT_IP6_ADDRESS_STRING_SIZE);
+	LOG_INF("Sending back reply to %s:%u", buf, port);
+
+	ret = otUdpSend(aInstance, sock, msg, origMsgInfo);
 	if (ret != OT_ERROR_NONE) {
 		LOG_ERR("Failed to send UDP reply: %s", otThreadErrorToString(ret));
 		return -1;
 	}
 	return 0;
-
 }
 

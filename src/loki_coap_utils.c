@@ -13,7 +13,9 @@
 #include <openthread/message.h>
 #include <openthread/thread.h>
 #include <stdio.h>
+#include <stdlib.h>             /* strtoul — replaces newlib-pulling sscanf */
 #include "loki_coap_utils.h"
+#include "loki_gatt.h"          /* MAX_LEN_FULL_NAME for name_request_handler */
 #include "main_loki.h"
 #include <openthread/srp_client.h>
 #include <openthread/srp_client_buffers.h>
@@ -31,7 +33,7 @@ struct server_context {
 	speed_request_callback_t on_direction_request;
 	stop_request_t on_stop_request;
 	name_set_request_callback_t on_name_request;
-	
+	ble_recovery_request_callback_t on_ble_recovery_request;
 };
 
 static struct server_context srv_context = {
@@ -41,6 +43,7 @@ static struct server_context srv_context = {
 	.on_direction_request = NULL,
 	.on_stop_request = NULL,
 	.on_name_request = NULL,
+	.on_ble_recovery_request = NULL,
 };
 
 
@@ -82,53 +85,29 @@ static otCoapResource name_resource = {
 	.mContext = NULL,
 	.mNext = NULL,
 };
-static otError provisioning_response_send(otMessage *request_message,
-					  const otMessageInfo *message_info)
-{
-	otError error = OT_ERROR_NO_BUFS;
-	otMessage *response;
-	const void *payload;
-	uint16_t payload_size;
+/**@brief Definition of CoAP resource for re-opening the BLE recovery window.
+ * Any non-confirmable request reopens advertising for
+ * CONFIG_LOKI_BLE_OFF_AFTER_ATTACH_MINUTES; ignored if that feature is off.
+ */
+static otCoapResource ble_recovery_resource = {
+	.mUriPath = BLE_RECOVERY_URI_PATH,
+	.mHandler = NULL,
+	.mContext = NULL,
+	.mNext = NULL,
+};
 
-	response = otCoapNewMessage(srv_context.ot, NULL);
-	if (response == NULL) {
-		goto end;
-	}
-
-	otCoapMessageInit(response, OT_COAP_TYPE_NON_CONFIRMABLE,
-			  OT_COAP_CODE_CONTENT);
-
-	error = otCoapMessageSetToken(
-		response, otCoapMessageGetToken(request_message),
-		otCoapMessageGetTokenLength(request_message));
-	if (error != OT_ERROR_NONE) {
-		goto end;
-	}
-
-	error = otCoapMessageSetPayloadMarker(response);
-	if (error != OT_ERROR_NONE) {
-		goto end;
-	}
-
-	payload = otThreadGetMeshLocalEid(srv_context.ot);
-	payload_size = sizeof(otIp6Address);
-
-	error = otMessageAppend(response, payload, payload_size);
-	if (error != OT_ERROR_NONE) {
-		goto end;
-	}
-
-	error = otCoapSendResponse(srv_context.ot, response, message_info);
-
-	LOG_HEXDUMP_INF(payload, payload_size, "Sent provisioning response:");
-
-end:
-	if (error != OT_ERROR_NONE && response != NULL) {
-		otMessageFree(response);
-	}
-
-	return error;
-}
+/**@brief CoRE Link Format discovery resource (RFC 6690). GET returns the
+ * `LOKI_WELL_KNOWN_CORE` string — generated from interface/coap.yaml so the
+ * advertised resource set can't drift from the handlers registered below. */
+static otCoapResource well_known_core_resource = {
+	.mUriPath = WELL_KNOWN_CORE_URI_PATH,
+	.mHandler = NULL,
+	.mContext = NULL,
+	.mNext = NULL,
+};
+/* `provisioning_response_send` used to live here — vestige of the
+ * Nordic light/provisioning sample. Removed because nothing in loki
+ * ever called it. */
 
 /* TODO REMOVE AFTER REIMPLEMENTATION FOR SPEED ACC STOP 
 static void provisioning_request_handler(void *context, otMessage *message,
@@ -195,7 +174,11 @@ end:
 static void speed_request_handler(void *context, otMessage *request_message,
 								  const otMessageInfo *message_info)
 {
-	static char speed_input_value[4];
+	/* 5 = up to 3 digits ("255") + NUL + 1 byte of slack for malformed input.
+	 * The original 4-byte buffer was filled by otMessageRead(...,4) with no
+	 * terminator, leaving strtoul/sscanf reading past the end on a max-length
+	 * payload. */
+	static char speed_input_value[5];
 	uint8_t value;
 
 	ARG_UNUSED(context);
@@ -208,23 +191,30 @@ static void speed_request_handler(void *context, otMessage *request_message,
 
 	if (otCoapMessageGetCode(request_message) == OT_COAP_CODE_PUT)
 	{
-		if (otMessageRead(request_message, otMessageGetOffset(request_message), &speed_input_value, 4) <
-			1)
+		int n = otMessageRead(request_message,
+				      otMessageGetOffset(request_message),
+				      speed_input_value,
+				      sizeof(speed_input_value) - 1);
+		if (n < 1)
 		{
 			LOG_ERR("Speed handler - Missing speed parameter");
 			goto end;
 		}
-		/* FIXME: enabled NEWLIBC only for this. Through out, if image grows too big:
-		  FLASH:      692124 B         1 MB     66.01% 
+		speed_input_value[n] = '\0';
 
-		vs
+		/* strtoul lives in stdlib.h and is provided by minimal-libc /
+		 * picolibc — so this no longer pulls in newlib for the sake of
+		 * one decimal parse (used to cost ~36 KB of flash). */
+		char *parse_end;
+		unsigned long parsed = strtoul(speed_input_value, &parse_end, 10);
+		if (parse_end == speed_input_value || parsed > 255)
+		{
+			LOG_ERR("Speed handler - bad speed value '%s'", speed_input_value);
+			goto end;
+		}
+		value = (uint8_t)parsed;
 
-           FLASH:      656124 B         1 MB     62.57%
-             RAM:      131020 B       256 KB     49.98%
-		*/
-		sscanf(speed_input_value, "%d", &value);
-		
-		LOG_INF("Received direct speed request: %d", value);		
+		LOG_INF("Received direct speed request: %u", value);
 		srv_context.on_speed_request(value);
 	}
 	else if (otCoapMessageGetCode(request_message) == OT_COAP_CODE_GET)
@@ -252,7 +242,7 @@ static void speed_request_handler(void *context, otMessage *request_message,
 		{
 			goto end_response;
 		}
-		if (/* FIXME: getContentFormat(request_message) */ 0 == OT_COAP_OPTION_CONTENT_FORMAT_TEXT_PLAIN) {
+		if (getContentFormat(request_message) == OT_COAP_OPTION_CONTENT_FORMAT_TEXT_PLAIN) {
 		
 			error = otCoapMessageAppendContentFormatOption(response, OT_COAP_OPTION_CONTENT_FORMAT_TEXT_PLAIN);
 			if (error != OT_ERROR_NONE)
@@ -260,7 +250,7 @@ static void speed_request_handler(void *context, otMessage *request_message,
 				goto end_response;
 			}
 
-			payload_size = sprintf(payload, "%d",speed_value);
+			payload_size = snprintk(payload, sizeof(payload), "%u", speed_value);
 		} else {
 			error = otCoapMessageAppendContentFormatOption(response, OT_COAP_OPTION_CONTENT_FORMAT_OCTET_STREAM);
 			if (error != OT_ERROR_NONE)
@@ -309,27 +299,36 @@ end:
 
 static otCoapOptionContentFormat getContentFormat(otMessage *request_message)
 {
-	otCoapOptionContentFormat content_format = 0; // TEXT_PLAIN by default
-	otCoapOptionIterator *iterator;
-	otCoapOption *option;
+	/* Default to text/plain when the option is absent, matches what most
+	 * CoAP clients assume when they don't set Content-Format. */
+	otCoapOptionContentFormat content_format =
+		OT_COAP_OPTION_CONTENT_FORMAT_TEXT_PLAIN;
+
+	/* Iterator lives on the stack — the previous version dereferenced an
+	 * uninitialised pointer. */
+	otCoapOptionIterator iterator;
+	const otCoapOption *option;
 	otError error;
-	LOG_INF("Getting content format option");
-	otCoapOptionIteratorInit(iterator, request_message);
-	LOG_INF("Iterator Init done");
-	option = otCoapOptionIteratorGetFirstOptionMatching(iterator,OT_COAP_OPTION_CONTENT_FORMAT);
-	LOG_INF("Option found");
-	if (option == NULL) return content_format;
-	
-	if (option->mNumber == OT_COAP_OPTION_CONTENT_FORMAT)
-	{
-		error = otCoapOptionIteratorGetOptionValue(iterator, &content_format);					
-		if (error != OT_ERROR_NONE)
-		{
-			LOG_ERR("Failed to get content format option");
-			return 0;
-		}
+
+	error = otCoapOptionIteratorInit(&iterator, request_message);
+	if (error != OT_ERROR_NONE) {
+		return content_format;
 	}
-	return content_format;
+
+	option = otCoapOptionIteratorGetFirstOptionMatching(
+		&iterator, OT_COAP_OPTION_CONTENT_FORMAT);
+	if (option == NULL) {
+		return content_format;
+	}
+
+	/* Content-Format is encoded as a CoAP uint option. */
+	uint64_t raw = 0;
+	error = otCoapOptionIteratorGetOptionUintValue(&iterator, &raw);
+	if (error != OT_ERROR_NONE) {
+		LOG_WRN("Failed to read content-format option: %d", error);
+		return content_format;
+	}
+	return (otCoapOptionContentFormat)raw;
 }
 
 static void acceleration_request_handler(void *context, otMessage *request_message,
@@ -376,8 +375,13 @@ static void acceleration_request_handler(void *context, otMessage *request_messa
 			goto end_response;
 		}
 
-		payload = speed_value;
-		payload_size = sizeof(speed_value);
+		/* GET /acceleration returns the current acceleration order. Until
+		 * 2.6 lands a generic numeric handler, this branch is the only
+		 * place that read accel_order; the previous `payload = speed_value`
+		 * (an int assigned to a `const void *`) silently returned the
+		 * speed instead. */
+		payload = &accel_order;
+		payload_size = sizeof(accel_order);
 
 		error = otMessageAppend(response, payload, payload_size);
 		if (error != OT_ERROR_NONE)
@@ -390,13 +394,13 @@ static void acceleration_request_handler(void *context, otMessage *request_messa
 		{
 			goto end_response;
 		}
-		LOG_INF("Sent direct speed response: %d", speed_value);
+		LOG_INF("Sent acceleration response: %d", accel_order);
 
 	end_response:
 		if (error != OT_ERROR_NONE && response != NULL)
 		{
 			otMessageFree(response);
-			LOG_ERR("Failed to send direct speed response");
+			LOG_ERR("Failed to send acceleration response");
 		}
 
 		goto end;
@@ -466,20 +470,129 @@ static void name_request_handler(void *context, otMessage *message,
 				  const otMessageInfo *message_info)
 {
 	ARG_UNUSED(context);
-
 	ARG_UNUSED(message_info);
 
 	LOG_INF("Received name request");
-	
-	uint16_t len = otMessageGetLength(message);
-	uint16_t offset = otMessageGetOffset(message);
-	char *buf = malloc(len);
-	if (buf == NULL) {
-		LOG_ERR("Failed to allocate memory for name request");
+
+	if (srv_context.on_name_request == NULL) {
 		return;
 	}
 
-	srv_context.on_name_request(buf, len);
+	/* otMessageGetLength returns the total message length including the CoAP
+	 * header; the payload starts at otMessageGetOffset(). */
+	uint16_t offset = otMessageGetOffset(message);
+	uint16_t total  = otMessageGetLength(message);
+	uint16_t avail  = (total > offset) ? (total - offset) : 0;
+
+	if (avail == 0) {
+		LOG_WRN("Name request payload empty");
+		return;
+	}
+	if (avail > MAX_LEN_FULL_NAME) {
+		LOG_WRN("Name payload %u clamped to MAX_LEN_FULL_NAME (%u)",
+			avail, MAX_LEN_FULL_NAME);
+		avail = MAX_LEN_FULL_NAME;
+	}
+
+	/* Stack-allocate; the callback (modify_full_name) copies into the
+	 * persistent full_name array before returning. No heap, no leak path. */
+	char buf[MAX_LEN_FULL_NAME + 1];
+	uint16_t got = otMessageRead(message, offset, buf, avail);
+	if (got == 0) {
+		LOG_ERR("Name request read failed");
+		return;
+	}
+	buf[got] = '\0';
+
+	srv_context.on_name_request(buf, got);
+}
+
+static void ble_recovery_request_handler(void *context, otMessage *message,
+					  const otMessageInfo *message_info)
+{
+	ARG_UNUSED(context);
+	ARG_UNUSED(message);
+	ARG_UNUSED(message_info);
+
+	LOG_INF("Received BLE recovery request");
+
+	if (srv_context.on_ble_recovery_request) {
+		srv_context.on_ble_recovery_request();
+	}
+}
+
+/* Serve the CoRE Link Format string for /.well-known/core (RFC 6690).
+ * The payload is the LOKI_WELL_KNOWN_CORE macro from the generated
+ * interface/generated/loki_coap.h — built by tools/gen_descriptors.py
+ * from interface/coap.yaml, so it can't drift from the resources actually
+ * registered here. */
+static void well_known_core_request_handler(void *context,
+					    otMessage *request_message,
+					    const otMessageInfo *message_info)
+{
+	ARG_UNUSED(context);
+
+	if (otCoapMessageGetType(request_message) != OT_COAP_TYPE_NON_CONFIRMABLE) {
+		LOG_ERR(".well-known/core - unexpected message type");
+		return;
+	}
+	if (otCoapMessageGetCode(request_message) != OT_COAP_CODE_GET) {
+		LOG_ERR(".well-known/core - only GET is supported");
+		return;
+	}
+
+	/* Static so the storage outlives the function frame for otMessageAppend
+	 * (otMessageAppend copies into the OT message, so technically a stack
+	 * buffer would also be safe, but `static const` is the canonical shape
+	 * and lets the compiler emit it once in .rodata). */
+	static const char link_format[] = LOKI_WELL_KNOWN_CORE;
+	const size_t link_format_len = sizeof(link_format) - 1; /* drop NUL */
+
+	otError error = OT_ERROR_NO_BUFS;
+	otMessage *response = otCoapNewMessage(srv_context.ot, NULL);
+	if (response == NULL) {
+		LOG_ERR(".well-known/core - no message buffer");
+		return;
+	}
+
+	otCoapMessageInit(response, OT_COAP_TYPE_NON_CONFIRMABLE,
+			  OT_COAP_CODE_CONTENT);
+
+	error = otCoapMessageSetToken(
+		response, otCoapMessageGetToken(request_message),
+		otCoapMessageGetTokenLength(request_message));
+	if (error != OT_ERROR_NONE) {
+		goto fail;
+	}
+
+	error = otCoapMessageAppendContentFormatOption(
+		response, OT_COAP_OPTION_CONTENT_FORMAT_LINK_FORMAT);
+	if (error != OT_ERROR_NONE) {
+		goto fail;
+	}
+
+	error = otCoapMessageSetPayloadMarker(response);
+	if (error != OT_ERROR_NONE) {
+		goto fail;
+	}
+
+	error = otMessageAppend(response, link_format, link_format_len);
+	if (error != OT_ERROR_NONE) {
+		goto fail;
+	}
+
+	error = otCoapSendResponse(srv_context.ot, response, message_info);
+	if (error != OT_ERROR_NONE) {
+		goto fail;
+	}
+
+	LOG_INF(".well-known/core: sent %u bytes of link-format",
+		(unsigned)link_format_len);
+	return;
+
+fail:
+	LOG_ERR(".well-known/core - response failed (%d)", error);
+	otMessageFree(response);
 }
 
 static void coap_default_handler(void *context, otMessage *message,
@@ -517,7 +630,8 @@ int loki_coap_init(
 		accel_request_callback_t on_acceleration_request,
 		speed_request_callback_t on_direction_request,
 		stop_request_t on_stop_request,
-		name_set_request_callback_t on_name_request)
+		name_set_request_callback_t on_name_request,
+		ble_recovery_request_callback_t on_ble_recovery_request)
 	{
 	otError error;
 
@@ -544,17 +658,26 @@ int loki_coap_init(
 	stop_resource.mHandler = stop_request_handler;
 	name_resource.mContext = srv_context.ot;
 	name_resource.mHandler = name_request_handler;
+	ble_recovery_resource.mContext = srv_context.ot;
+	ble_recovery_resource.mHandler = ble_recovery_request_handler;
+	well_known_core_resource.mContext = srv_context.ot;
+	well_known_core_resource.mHandler = well_known_core_request_handler;
 
 	otCoapSetDefaultHandler(srv_context.ot, coap_default_handler, NULL);
 	otCoapAddResource(srv_context.ot, &speed_resource);
 	otCoapAddResource(srv_context.ot, &acceleration_resource);
 	otCoapAddResource(srv_context.ot, &direction_resource);
 	otCoapAddResource(srv_context.ot, &stop_resource);
-	
+	otCoapAddResource(srv_context.ot, &name_resource);
+	otCoapAddResource(srv_context.ot, &ble_recovery_resource);
+	otCoapAddResource(srv_context.ot, &well_known_core_resource);
+
 	srv_context.on_speed_request = on_speed_request;
 	srv_context.on_acceleration_request = on_acceleration_request;
 	srv_context.on_direction_request = on_direction_request;
 	srv_context.on_stop_request = on_stop_request;
+	srv_context.on_name_request = on_name_request;
+	srv_context.on_ble_recovery_request = on_ble_recovery_request;
 
 	error = otCoapStart(srv_context.ot, COAP_PORT);
 	if (error != OT_ERROR_NONE) {

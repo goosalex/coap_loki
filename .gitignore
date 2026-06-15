@@ -2,6 +2,10 @@
 *.swp
 *~
 
+# tooling
+__pycache__/
+*.pyc
+
 # build
 /build*/
 .vscode/
@@ -9,3 +13,5 @@ log.log
 coap_loki.code-workspace
 .vscode/settings.json
 .DS_Store
+.claude/settings.json
+lazygit*

@@ -1,21 +1,20 @@
+/*
+ * Point Zephyr's chosen `zephyr,storage` at the standard NCS settings
+ * partition (`storage_partition` in DT — the NCS Partition Manager knows
+ * the same physical partition as `settings_storage`). The manual NVS
+ * instance in init_and_optionally_clear_nvs() and the Zephyr settings
+ * backend (CONFIG_SETTINGS_NVS) then share the same partition, which is
+ * the intent: a CONFIG_LOKI_CLEAR_SETTINGS_NEW_VERSION wipe nukes
+ * everything (BLE bonds, Thread network data, loki/* keys) in one go.
+ *
+ * Previously this overlay defined a separate `nvs_storage: partition@f0000`
+ * node, but PM never learned that name so FIXED_PARTITION_ID() could not
+ * resolve it.
+ */
+
 / {
     chosen {
-        zephyr,storage = &nvs_storage;
-        	zephyr,flash = &flash0;
+        zephyr,storage = &storage_partition;
+        zephyr,flash   = &flash0;
     };
 };
-
-&flash0 {
-    partitions {
-        compatible = "fixed-partitions";
-        #address-cells = <1>;
-        #size-cells = <1>;
-
-        nvs_storage: partition@f0000 {
-            label = "nvs_storage";
-            reg = <0x000f0000 0x00010000>;
-        };
-    };
-};
-
-

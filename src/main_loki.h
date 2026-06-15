@@ -33,6 +33,16 @@ void re_apply_acceleration(struct k_timer *timer_id);
 void apply_current_acceleration();
 void change_direction(uint8_t new_pattern);
 
+/* Set the loco's DCC address, persist it to NVM, and re-register the SRP/Loconet
+ * service so DNS-SD discovery and the UDP listener track the new value.
+ * Safe to call from BLE writes or CoAP handlers. */
+void apply_dcc_address(uint16_t new_dcc);
+
+/* Build/refresh the SRP service registration for the current dcc_address and
+ * rebind the Loconet UDP listener. Idempotent. Called from main() at boot
+ * (after settings have been loaded) and internally from apply_dcc_address(). */
+void register_dcc_service(void);
+
 void on_udp_loconet_receive(void *aContext, otMessage *aMessage, const otMessageInfo *aMessageInfo);
 
 
