@@ -38,6 +38,20 @@ typedef enum {
 #define LOKI_RES_DIRECTION_MIN  (0)
 #define LOKI_RES_DIRECTION_MAX  (255)
 
+/* CoRE Link Format string (RFC 6690) describing every CoAP resource.
+ * Served from the .well-known/core handler in src/loki_coap_utils.c with
+ * content-format 40 (application/link-format). One GET lets a generic CoAP
+ * client enumerate the loco's resource surface without hard-coding paths. */
+#define WELL_KNOWN_CORE_URI_PATH ".well-known/core"
+
+#define LOKI_WELL_KNOWN_CORE \
+    "</speed>;rt=\"loki.speed\";if=\"core.p\";ct=0," \
+    "</acceleration>;rt=\"loki.accel\";if=\"core.p\";ct=0," \
+    "</direction>;rt=\"loki.direction\";if=\"core.a\";ct=0," \
+    "</stop>;rt=\"loki.stop\";if=\"core.a\"," \
+    "</name>;rt=\"loki.name\";if=\"core.a\";ct=0," \
+    "</ble-recovery>;rt=\"loki.ble-recovery\";if=\"core.a\""
+
 /* Direction command bytes — direction_command. */
 enum direction_command {
 	THREAD_LOKI_UTILS_LIGHT_CMD_STOP = '0',

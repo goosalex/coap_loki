@@ -155,19 +155,60 @@ it this handler is never reached.
 
 ---
 
-## 2.5 No CoAP resource discovery (`/.well-known/core`)
+## 2.5 No CoAP resource discovery (`/.well-known/core`) — **applied**
 
-**Problem.** Clients can't enumerate resources over CoAP; the resource list is
-out-of-band only.
+**Was.** Clients had no way to enumerate the loco's CoAP resources from the
+wire. The resource list was out-of-band only, in [INTERFACES.md](../INTERFACES.md)
+and `interface/coap.yaml`. A new controller or a tool like `aiocoap-client`
+had no in-band way to discover what speed/acceleration/etc. resources
+existed.
 
-**Fix.** Register a `.well-known/core` resource returning
-`application/link-format` (content-format 40). See
-[04 — machine-readable descriptors](04-machine-readable-descriptors.md) for the
-recommended approach (generate the link-format string from `interface/coap.yaml`
-so it can't drift from the actual handlers).
+**Now.** A `.well-known/core` resource is registered alongside the others in
+[loki_coap_init](../src/loki_coap_utils.c). It serves the
+[`LOKI_WELL_KNOWN_CORE`](../interface/generated/loki_coap.h) string with
+content-format 40 (`application/link-format`) per RFC 6690.
 
-**Affected:** [../src/loki_coap_utils.c](../src/loki_coap_utils.c).
-**Effort:** M. **Risk:** low.
+The link-format string is **generated** by
+[tools/gen_descriptors.py](../tools/gen_descriptors.py) from each resource's
+entry in [interface/coap.yaml](../interface/coap.yaml). The `if` attribute
+is inferred from the YAML `methods:` field — `core.p` for read+write,
+`core.a` for write-only (actuators), `core.s` for read-only — and `ct=0` is
+emitted for any resource with a declared `type:`. The `rt` value comes
+verbatim from the YAML `rt:` field. Concretely:
+
+```
+GET coap://[<loco>]/.well-known/core
+ct: 40 (application/link-format)
+
+</speed>;rt="loki.speed";if="core.p";ct=0,
+</acceleration>;rt="loki.accel";if="core.p";ct=0,
+</direction>;rt="loki.direction";if="core.a";ct=0,
+</stop>;rt="loki.stop";if="core.a",
+</name>;rt="loki.name";if="core.a";ct=0,
+</ble-recovery>;rt="loki.ble-recovery";if="core.a"
+```
+
+Because the same YAML drives both the link-format string and the
+`SPEED_URI_PATH` etc. macros the actual handlers register under, the
+advertised surface cannot drift from the registered surface — adding a
+resource to YAML, regenerating, and registering its handler updates the
+discovery output for free.
+
+The handler is GET-only, rejects confirmable messages (consistent with the
+rest of the CoAP surface here), and uses a `static const` payload so the
+link-format lives in `.rodata` exactly once.
+
+**Verification.**
+
+- [ ] `coap-client -N -m get coap://[<loco>]:5683/.well-known/core` returns
+      the link-format string above with `Content-Format: 40`.
+- [ ] `aiocoap-client coap://[<loco>]:5683/.well-known/core` parses the
+      response and lists the six resources.
+- [ ] Adding a new resource stanza to `interface/coap.yaml`, regenerating,
+      and adding its handler in `loki_coap_utils.c` updates the
+      `.well-known/core` response without touching that handler.
+- [ ] Log line `.well-known/core: sent N bytes of link-format` fires on each
+      GET.
 
 ---
 

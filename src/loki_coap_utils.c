@@ -95,6 +95,16 @@ static otCoapResource ble_recovery_resource = {
 	.mContext = NULL,
 	.mNext = NULL,
 };
+
+/**@brief CoRE Link Format discovery resource (RFC 6690). GET returns the
+ * `LOKI_WELL_KNOWN_CORE` string — generated from interface/coap.yaml so the
+ * advertised resource set can't drift from the handlers registered below. */
+static otCoapResource well_known_core_resource = {
+	.mUriPath = WELL_KNOWN_CORE_URI_PATH,
+	.mHandler = NULL,
+	.mContext = NULL,
+	.mNext = NULL,
+};
 /* `provisioning_response_send` used to live here — vestige of the
  * Nordic light/provisioning sample. Removed because nothing in loki
  * ever called it. */
@@ -511,6 +521,80 @@ static void ble_recovery_request_handler(void *context, otMessage *message,
 	}
 }
 
+/* Serve the CoRE Link Format string for /.well-known/core (RFC 6690).
+ * The payload is the LOKI_WELL_KNOWN_CORE macro from the generated
+ * interface/generated/loki_coap.h — built by tools/gen_descriptors.py
+ * from interface/coap.yaml, so it can't drift from the resources actually
+ * registered here. */
+static void well_known_core_request_handler(void *context,
+					    otMessage *request_message,
+					    const otMessageInfo *message_info)
+{
+	ARG_UNUSED(context);
+
+	if (otCoapMessageGetType(request_message) != OT_COAP_TYPE_NON_CONFIRMABLE) {
+		LOG_ERR(".well-known/core - unexpected message type");
+		return;
+	}
+	if (otCoapMessageGetCode(request_message) != OT_COAP_CODE_GET) {
+		LOG_ERR(".well-known/core - only GET is supported");
+		return;
+	}
+
+	/* Static so the storage outlives the function frame for otMessageAppend
+	 * (otMessageAppend copies into the OT message, so technically a stack
+	 * buffer would also be safe, but `static const` is the canonical shape
+	 * and lets the compiler emit it once in .rodata). */
+	static const char link_format[] = LOKI_WELL_KNOWN_CORE;
+	const size_t link_format_len = sizeof(link_format) - 1; /* drop NUL */
+
+	otError error = OT_ERROR_NO_BUFS;
+	otMessage *response = otCoapNewMessage(srv_context.ot, NULL);
+	if (response == NULL) {
+		LOG_ERR(".well-known/core - no message buffer");
+		return;
+	}
+
+	otCoapMessageInit(response, OT_COAP_TYPE_NON_CONFIRMABLE,
+			  OT_COAP_CODE_CONTENT);
+
+	error = otCoapMessageSetToken(
+		response, otCoapMessageGetToken(request_message),
+		otCoapMessageGetTokenLength(request_message));
+	if (error != OT_ERROR_NONE) {
+		goto fail;
+	}
+
+	error = otCoapMessageAppendContentFormatOption(
+		response, OT_COAP_OPTION_CONTENT_FORMAT_LINK_FORMAT);
+	if (error != OT_ERROR_NONE) {
+		goto fail;
+	}
+
+	error = otCoapMessageSetPayloadMarker(response);
+	if (error != OT_ERROR_NONE) {
+		goto fail;
+	}
+
+	error = otMessageAppend(response, link_format, link_format_len);
+	if (error != OT_ERROR_NONE) {
+		goto fail;
+	}
+
+	error = otCoapSendResponse(srv_context.ot, response, message_info);
+	if (error != OT_ERROR_NONE) {
+		goto fail;
+	}
+
+	LOG_INF(".well-known/core: sent %u bytes of link-format",
+		(unsigned)link_format_len);
+	return;
+
+fail:
+	LOG_ERR(".well-known/core - response failed (%d)", error);
+	otMessageFree(response);
+}
+
 static void coap_default_handler(void *context, otMessage *message,
 				 const otMessageInfo *message_info)
 {
@@ -576,6 +660,8 @@ int loki_coap_init(
 	name_resource.mHandler = name_request_handler;
 	ble_recovery_resource.mContext = srv_context.ot;
 	ble_recovery_resource.mHandler = ble_recovery_request_handler;
+	well_known_core_resource.mContext = srv_context.ot;
+	well_known_core_resource.mHandler = well_known_core_request_handler;
 
 	otCoapSetDefaultHandler(srv_context.ot, coap_default_handler, NULL);
 	otCoapAddResource(srv_context.ot, &speed_resource);
@@ -584,6 +670,7 @@ int loki_coap_init(
 	otCoapAddResource(srv_context.ot, &stop_resource);
 	otCoapAddResource(srv_context.ot, &name_resource);
 	otCoapAddResource(srv_context.ot, &ble_recovery_resource);
+	otCoapAddResource(srv_context.ot, &well_known_core_resource);
 
 	srv_context.on_speed_request = on_speed_request;
 	srv_context.on_acceleration_request = on_acceleration_request;

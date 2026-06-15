@@ -304,6 +304,53 @@ def render_coap(doc: dict) -> str:
             lines.append(f"#define {n_max:<{name_w}} ({hi})")
             lines.append("")
 
+    # CoRE Link Format string for /.well-known/core (RFC 6690).
+    #
+    # Generated from each resource's `path`, `rt`, `methods`, and `type`. The
+    # firmware serves this string verbatim from a `.well-known/core` CoAP
+    # handler with content-format 40 (application/link-format), giving
+    # clients a single GET that enumerates everything they can talk to.
+    #
+    # The `if` attribute is inferred from the method set:
+    #   - GET + PUT  → core.p (parameter, read+write)
+    #   - PUT only   → core.a (actuator, side-effect)
+    #   - GET only   → core.s (sensor, read-only)
+    # The `ct` attribute is emitted only for resources with a declared `type`
+    # (text/plain encoding is the firmware's default for those).
+    if res:
+        def _core_link_entry(r: dict) -> str:
+            segs = [f"</{r['path']}>"]
+            if r.get("rt"):
+                segs.append(f';rt="{r["rt"]}"')
+            methods = {m.upper() for m in r.get("methods", [])}
+            if {"GET", "PUT"}.issubset(methods):
+                segs.append(';if="core.p"')
+            elif methods == {"PUT"}:
+                segs.append(';if="core.a"')
+            elif methods == {"GET"}:
+                segs.append(';if="core.s"')
+            if r.get("type"):
+                segs.append(";ct=0")
+            return "".join(segs)
+
+        lines.append("/* CoRE Link Format string (RFC 6690) describing every CoAP resource.")
+        lines.append(" * Served from the .well-known/core handler in src/loki_coap_utils.c with")
+        lines.append(" * content-format 40 (application/link-format). One GET lets a generic CoAP")
+        lines.append(" * client enumerate the loco's resource surface without hard-coding paths. */")
+        lines.append('#define WELL_KNOWN_CORE_URI_PATH ".well-known/core"')
+        lines.append("")
+        lines.append("#define LOKI_WELL_KNOWN_CORE \\")
+        entries = [_core_link_entry(r) for r in res]
+        last = len(entries) - 1
+        for i, entry in enumerate(entries):
+            # Quote-escape any literal " in the entry (currently none, but
+            # defend against future YAML edits that add quoted attributes).
+            escaped = entry.replace('"', '\\"')
+            sep = "," if i < last else ""
+            cont = " \\" if i < last else ""
+            lines.append(f'    "{escaped}{sep}"{cont}')
+        lines.append("")
+
     enum = doc.get("direction_enum")
     if enum:
         lines.append(f"/* Direction command bytes — {enum['c_name']}. */")
